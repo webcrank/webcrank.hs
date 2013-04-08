@@ -1,0 +1,5 @@
+:set -Wall
+:set -i../src -i../dist/build/autogen -i.
+:m + Test.QuickCheck
+:l test.hs
+:set prompt "test>> "

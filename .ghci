@@ -1,0 +1,5 @@
+:set -isrc -idist/build/autogen
+:set -Wall
+:l Webcrank
+:m + Webcrank
+:set prompt ">> "

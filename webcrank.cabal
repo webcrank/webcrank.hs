@@ -1,0 +1,42 @@
+name:               webcrank
+version:            0.0.1
+license:            BSD3
+license-file:       LICENCE
+author:             Mark Hibberd <mark@hibberd.id.au>
+maintainer:         Mark Hibberd <mark@hibberd.id.au>
+copyright:          (c) 2012 Mark Hibberd
+synopsis:           Webmachine inspired toolkit for building http applications and services.
+category:           Web
+homepage:           https://github.com/webcrank/webcrank
+bug-reports:        https://github.com/webcrank/webcrank/issues
+cabal-version:      >= 1.8
+build-type:         Simple
+description:
+  Webmachine inspired toolkit for building http applications and services.
+
+source-repository   head
+  type:             git
+  location:         https://github.com/webcrank/webcrank.git
+
+flag                small_base
+  description:      Choose the new, split-up base package.
+
+library
+  build-depends:
+                    base                            >= 3          && < 5
+
+  ghc-options:
+                    -Wall -fno-warn-orphans
+
+  hs-source-dirs:
+                    src
+
+  exposed-modules:
+                    Webcrank
+                    Webcrank.Core
+
+test-suite spec
+  type:           exitcode-stdio-1.0
+  main-is:        test.hs
+  hs-source-dirs: src, test
+  build-depends:  base, hspec, QuickCheck
