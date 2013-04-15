@@ -1,5 +1,5 @@
 :set -isrc -idist/build/autogen
-:set -Wall
+:set  -XNoImplicitPrelude  -Wall -Werror
 :l Webcrank
 :m + Webcrank
 :set prompt ">> "
