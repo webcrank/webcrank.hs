@@ -17,7 +17,10 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B13 | V3B12 | V3B11
+data Step = V3B10
+          | V3B11
+          | V3B12
+          | V3B13
 
 type Response rb = (Status, ResponseHeaders, ResponseBody rb)
 
@@ -82,6 +85,9 @@ decision V3B13 = testEq (call serviceAvailable) True (step V3B12) (errorResponse
 decision V3B12 = test (lift getRqMethod) known (step V3B11) (errorResponse notImplemented501) where 
   known m = elem m knownMethods
 
+-- URI too long?
+decision V3B11 = testEq (call uriTooLong) True (errorResponse requestURITooLong414) (step V3B10) 
+
 decision _ = Prelude.error "step not implemented"
 
 defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
@@ -89,6 +95,9 @@ defaultErrorRenderer s = getRespBody >>= maybe (render s) return where
   render (Status 404 _) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
+  render (Status 414 _) = do
+    addRespHeader hContentType "text/html"
+    return $ BuilderResponseBody $ byteString "<html><head><title>414 Request-URI Too Large</title></head><body><h1>Request-URI Too Large</h1><p><hr><address>webcrank web server</address></body></html>"
   render (Status 501 _) = do
     addRespHeader hContentType "text/html"
     m <- getRqMethod

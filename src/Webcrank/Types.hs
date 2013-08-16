@@ -69,6 +69,9 @@ data Resource rq rb m s = Resource
     -- | @False@ will result in @503 Not Found@. Defaults to @True@.
   , serviceAvailable :: ResourceFn rq rb s m Bool
 
+    -- | @True@ will result in @414 Request Too Long@. Defaults to @False@.
+  , uriTooLong :: ResourceFn rq rb s m Bool
+
     -- | @False@ will result in @404 Not Found@. Defaults to @True@.
 --   , resourceExists :: ResourceFn rb s m Bool
   }
@@ -78,6 +81,7 @@ resource :: Monad m => Init m s -> Resource rq rb m s
 resource i = Resource
   { rqInit               = i
   , serviceAvailable     = return True
+  , uriTooLong           = return False
 --   , resourceExists       = return $ Result True
 --   , isAuthorized         = return $ Result Authz
 --   , forbidden            = return $ Result False
