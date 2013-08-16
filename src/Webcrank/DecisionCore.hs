@@ -17,7 +17,7 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B13 | V3B12
+data Step = V3B13 | V3B12 | V3B11
 
 type Response rb = (Status, ResponseHeaders, ResponseBody rb)
 
@@ -42,12 +42,19 @@ runResource r rq = runMaybeT (rqInit r) >>= maybe serverError go where
 step :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 step = decision
 
-test :: (Monad m, Eq a) => ResFn rq rb s m a        -- function to test
-                        -> a                        -- expected test value
-                        -> ResFn rq rb s m (Response rb) -- true step
-                        -> ResFn rq rb s m (Response rb) -- false step
-                        -> ResFn rq rb s m (Response rb)
-test r x t f = r >>= \y -> if x == y then t else f
+test :: Monad m => ResFn rq rb s m a        -- function to test
+                -> (a -> Bool)              -- test function
+                -> ResFn rq rb s m (Response rb) -- true step
+                -> ResFn rq rb s m (Response rb) -- false step
+                -> ResFn rq rb s m (Response rb)
+test r f x y = r >>= \a -> if f a then x else y
+
+testEq :: (Monad m, Eq a) => ResFn rq rb s m a        -- function to test
+                          -> a                        -- test value
+                          -> ResFn rq rb s m (Response rb) -- true step
+                          -> ResFn rq rb s m (Response rb) -- false step
+                          -> ResFn rq rb s m (Response rb)
+testEq r a x y = r >>= \b -> if a == b then x else y
 
 call :: (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
 call = ReaderT
@@ -56,24 +63,39 @@ respond :: Monad m => Status -> ResFn rq rb s m (Response rb)
 -- TODO pull headers out of RqData
 respond s = return (s, [], BuilderResponseBody $ byteString "")
 
-errorResponse :: Monad m => Status -> ResFn rq rb s m (Response rb)
+errorResponse :: (Monad m) => Status -> ResFn rq rb s m (Response rb)
 errorResponse s = lift $ do
   b <- getErrorRenderer >>= ($ s)
   hdrs <- getRespHeaders
   return (s, hdrs, b)
 
+-- TODO make it part of the config or part of the resource?
+knownMethods :: [Method]
+knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, methodTrace, methodConnect, methodOptions]
+
 decision :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 
 -- Service Available
-decision V3B13 = test (call serviceAvailable) True (step V3B12) (errorResponse serviceUnavailable503)
+decision V3B13 = testEq (call serviceAvailable) True (step V3B12) (errorResponse serviceUnavailable503)
+
+-- Known method?
+decision V3B12 = test (lift getRqMethod) known (step V3B11) (errorResponse notImplemented501) where 
+  known m = elem m knownMethods
 
 decision _ = Prelude.error "step not implemented"
 
-defaultErrorRenderer :: Monad m => ErrorRenderer rq rb s m
+defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
 defaultErrorRenderer s = getRespBody >>= maybe (render s) return where
   render (Status 404 _) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
+  render (Status 501 _) = do
+    addRespHeader hContentType "text/html"
+    m <- getRqMethod
+    return $ BuilderResponseBody $ mconcat [ byteString "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>The server does not support the "
+                                           , byteString m
+                                           , byteString " method.<br><p><hr><address>webcrank web server</address></body></html>"
+                                           ]
   render (Status 503 _) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>503 Service Unavailable</title></head><body><h1>Service Unavailable</h1>The server is currently unable to handle the request due to a temporary overloading or maintenance of the server.<br><p><hr><address>webcrank web server</address></body></html>"
@@ -88,7 +110,7 @@ defaultErrorRenderer s = getRespBody >>= maybe (render s) return where
                                            , byteString "</h1>The server encountered an error while processing this request.<p><hr><address>webcrank web server</address></body></html>"
                                            ]
 
-initRqData :: Monad m => rq -> s -> RqData rq rb s m
+initRqData :: (Monad m, HasRequestInfo rq) => rq -> s -> RqData rq rb s m
 initRqData rq s = RqData
   { rqInfo = rq
   , rqState = s

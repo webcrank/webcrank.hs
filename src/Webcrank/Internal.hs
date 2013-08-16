@@ -64,6 +64,9 @@ instance (Monad m) => MonadState s (ResourceFn rq rb s m) where
 getErrorRenderer :: Monad m => ResourceFn rq rb s m (ErrorRenderer rq rb s m)
 getErrorRenderer = rgets errorRenderer
 
+getRqMethod :: (Monad m, HasRequestInfo rq) => ResourceFn rq rb s m Method
+getRqMethod = rgets (rqMethod . rqInfo)
+
 rgets :: Monad m => (RqData rq rb s m -> a) -> ResourceFn rq rb s m a
 rgets f = ResourceFn $ gets (ResourceFnValue . f)
 
