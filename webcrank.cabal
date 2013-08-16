@@ -22,11 +22,13 @@ flag                small_base
   description:      Choose the new, split-up base package.
 
 library
-  extensions:       NoImplicitPrelude
-
   build-depends:
                     base                            >= 3          && < 5
+                  , bytestring
+                  , http-types                      >= 0.8.0
+                  , mtl
                   , text                            >= 0.11
+                  , transformers
 
   ghc-options:
                     -Wall -fno-warn-orphans
@@ -36,14 +38,22 @@ library
 
   exposed-modules:
                     Webcrank
-                    Webcrank.Prelude
-                    Webcrank.Core
-                    Webcrank.Method
-                    Webcrank.StatusCode
-                    Webcrank.StatusCodes
+                    Webcrank.Types
+                    Webcrank.DecisionCore
 
-test-suite spec
-  type:           exitcode-stdio-1.0
-  main-is:        test.hs
-  hs-source-dirs: src, test
-  build-depends:  base, hspec, QuickCheck
+  other-modules:
+                    Webcrank.Internal
+
+test-suite hunit
+  type:             exitcode-stdio-1.0
+  main-is:          hunit.hs
+  hs-source-dirs:   test
+  build-depends:    base
+                  , bytestring
+                  , http-types
+                  , HUnit
+                  , mtl
+                  , tasty
+                  , tasty-hunit
+                  , webcrank
+

@@ -1,9 +1,16 @@
-.PHONY: test build
+.PHONY: config build test install-deps
 
 default: test
 
-test:
-	cabal configure --enable-tests && cabal build && cabal test
+install-deps:
+	cabal install --enable-tests --only-dependencies
 
-build:
-	cabal configure --enable-tests && cabal build && cabal test
+config: 
+	cabal configure --enable-tests
+
+build: config
+	cabal build
+
+test: build
+	cabal test
+
