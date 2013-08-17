@@ -18,12 +18,13 @@ resourceTests = testGroup "runResource"
   [ testCase "service is unavailable" testServiceUnavailable
   , testCase "not implemented" testNotImplemented 
   , testCase "uri too long" testUriTooLong
+  , testCase "method not allowed" testMethodNotAllowed
   ]
 
 (@=?>) = (=<<) . (@=?)
 
 testServiceUnavailable = resp503 @=?> runResource rs testRq where
-  rs = resource' { serviceAvailable = return False }
+  rs = resource' { serviceAvailable = value False }
   resp503 = testResp serviceUnavailable503 [(hContentType, "text/html")] (BuilderResponseBody $ byteString "<html><head><title>503 Service Unavailable</title></head><body><h1>Service Unavailable</h1>The server is currently unable to handle the request due to a temporary overloading or maintenance of the server.<br><p><hr><address>webcrank web server</address></body></html>")
 
 testNotImplemented = resp501 @=?> runResource resource' rq where
@@ -31,6 +32,10 @@ testNotImplemented = resp501 @=?> runResource resource' rq where
   resp501 = testResp notImplemented501 [(hContentType, "text/html")] (BuilderResponseBody $ byteString "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>The server does not support the MOVE method.<br><p><hr><address>webcrank web server</address></body></html>")
 
 testUriTooLong = resp414 @=?> runResource rs testRq where
-  rs = resource' { uriTooLong = return True }
+  rs = resource' { uriTooLong = value True }
   resp414 = testResp requestURITooLong414 [(hContentType, "text/html")] (BuilderResponseBody $ byteString "<html><head><title>414 Request-URI Too Large</title></head><body><h1>Request-URI Too Large</h1><p><hr><address>webcrank web server</address></body></html>")
+
+testMethodNotAllowed = resp405 @=?> runResource resource' rq where
+  rq = testRq { testRqMethod = "POST" }
+  resp405 = testResp methodNotAllowed405 [(hContentType, "text/html"), ("Allow", "GET, HEAD")] (BuilderResponseBody $ byteString "<html><head><title>405 Method Not Allowed</title></head><body><h1>Method Not Allowed</h1>Method Not Allowed<p><hr><address>webcrank web server</address></body></html>")
 

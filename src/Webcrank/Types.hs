@@ -1,11 +1,10 @@
 module Webcrank.Types 
   ( HasRequestInfo(..)
   , ResponseBody(..)
-  , Init
   , initOk
-  , initError
   , ErrorRenderer
   , ResourceFn
+  , value
   , error
   , halt
   , getRespBody
@@ -14,32 +13,32 @@ module Webcrank.Types
   , putRespHeaders
   , modifyRespHeaders 
   , addRespHeader
+  , removeRespHeader
+  , setRespHeader
   , Resource(..)
   , resource
   , resource'
   ) where
 
 import Control.Monad
-import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
-import Network.HTTP.Types (Status)
+import Data.ByteString.Lazy.Builder (Builder)
+import Network.HTTP.Types (Status, Method, methodGet, methodHead)
 import Network.HTTP.Types.Header (HeaderName, ResponseHeaders)
 import Prelude hiding (error)
 import Webcrank.Internal
 
-type Init m s = MaybeT m s
-
 initOk :: Monad m => s -> Init m s
-initOk = return
+initOk = Init . return
 
-initError :: Monad m => Init m s
-initError = MaybeT $ return Nothing
+value :: Monad m => a -> ResourceFn rq rb s m (Result a)
+value = return . Value
 
-error :: Monad m => ResponseBody rb -> ResourceFn rq rb s m a
-error = ResourceFn . return . ResourceFnError
+error :: Monad m => Builder -> ResourceFn rq rb s m (Result a)
+error = return . Error
 
-halt :: Monad m => Status -> ResourceFn rq rb s m a
-halt = ResourceFn . return . ResourceFnHalt
+halt :: Monad m => Status -> ResourceFn rq rb s m (Result a)
+halt = return . Halt
 
 getRespBody :: Monad m => ResourceFn rq rb s m (Maybe (ResponseBody rb))
 getRespBody = rgets respBody
@@ -61,16 +60,25 @@ modifyRespHeaders f = do
 addRespHeader :: Monad m => HeaderName -> ByteString -> ResourceFn rq rb s m ()
 addRespHeader h v = modifyRespHeaders ((h, v) :)
 
+removeRespHeader :: Monad m => HeaderName -> ResourceFn rq rb s m ()
+removeRespHeader h = modifyRespHeaders (filter ((h ==) . fst))
+
+setRespHeader :: Monad m => HeaderName -> ByteString -> ResourceFn rq rb s m ()
+setRespHeader h v = removeRespHeader h >> addRespHeader h v 
+
 data Resource rq rb m s = Resource
   { -- | Perform some initialization for the request and return a state, @s@,
     -- which will be threaded through all of the other resource functions.
     rqInit :: Init m s
 
     -- | @False@ will result in @503 Not Found@. Defaults to @True@.
-  , serviceAvailable :: ResourceFn rq rb s m Bool
+  , serviceAvailable :: ResourceFn rq rb s m (Result Bool)
 
     -- | @True@ will result in @414 Request Too Long@. Defaults to @False@.
-  , uriTooLong :: ResourceFn rq rb s m Bool
+  , uriTooLong :: ResourceFn rq rb s m (Result Bool)
+
+    -- | If a @Method@ not in this list is requested, then a @405 Method Not Allowed@ will be sent. Defaults to @GET@ and @HEAD@.
+  , allowedMethods :: ResourceFn rq rb s m [Method]
 
     -- | @False@ will result in @404 Not Found@. Defaults to @True@.
 --   , resourceExists :: ResourceFn rb s m Bool
@@ -80,12 +88,13 @@ data Resource rq rb m s = Resource
 resource :: Monad m => Init m s -> Resource rq rb m s
 resource i = Resource
   { rqInit               = i
-  , serviceAvailable     = return True
-  , uriTooLong           = return False
---   , resourceExists       = return $ Result True
---   , isAuthorized         = return $ Result Authz
---   , forbidden            = return $ Result False
---   , allowMissingPost     = return $ Result False
+  , serviceAvailable     = value True
+  , uriTooLong           = value False
+  , allowedMethods       = return [methodGet, methodHead]
+--   , resourceExists       = value True
+--   , isAuthorized         = value Authz
+--   , forbidden            = value False
+--   , allowMissingPost     = value False
   }
 
 resource' :: Monad m => Resource rq rb m ()

@@ -5,11 +5,10 @@ module Webcrank.DecisionCore
   , Response
   ) where
 
-import Control.Applicative ((<$>))
 import Control.Monad.Reader (ReaderT(..))
-import Control.Monad.State (runStateT)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
+import Control.Monad.State (evalStateT)
+import Control.Monad.Trans.Class
+import qualified Data.ByteString as B
 import Data.ByteString.Lazy.Builder (byteString, charUtf8)
 import Data.ByteString.Lazy.Builder.ASCII (intDec)
 import Data.Monoid
@@ -17,29 +16,44 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B10
+data Step = V3B9
+          | V3B10
           | V3B11
           | V3B12
           | V3B13
 
 type Response rb = (Status, ResponseHeaders, ResponseBody rb)
 
-type ResFn rq rb s m a = ReaderT (Resource rq rb m s) (ResourceFn rq rb s m) a
+newtype ResFn rq rb s m a = ResFn { unResFn :: ReaderT (Resource rq rb m s) (ResourceFn rq rb s m) (Result a) }
+
+instance Monad m => Monad (ResFn rq rb s m) where
+  return = ResFn . return . return
+  f >>= g = ResFn $ unResFn f >>= g' where
+    g' (Value a) = unResFn $ g a
+    g' (Error e) = return $ Error e
+    g' (Halt s) = return $ Halt s
+
+instance MonadTrans (ResFn rq rb s) where
+  lift m = ResFn $ lift $ lift $ m >>= return . return
 
 -- TODO add more configuration
 --   * error handler
 --   * app base
 --   * tracing
 runResource :: (Functor m, Monad m, HasRequestInfo rq) => Resource rq rb m s -> rq -> m (Response rb)
-runResource r rq = runMaybeT (rqInit r) >>= maybe serverError go where
-  -- TODO use error handler to get body
-  serverError = return (internalServerError500, [], BuilderResponseBody $ byteString "500 Internal server error") 
+runResource r rq = runInit (rqInit r) >>= go where
   go s = runFn (decision V3B13) (initRqData rq s)
-  runFn f s = mkResp <$> runStateT (runResourceFn (runReaderT f r)) s
-  mkResp (ResourceFnValue resp, _) = resp
-  mkResp (ResourceFnError e, rqd) = (internalServerError500, respHdrs rqd, e)
-  -- TODO use error handler to get body for 400 <= s < 600, handle 304 (remove content-type header, generate Etag, expires headers)
-  mkResp (ResourceFnHalt s, rqd) = (s, respHdrs rqd, BuilderResponseBody $ byteString "")
+  runFn f = evalStateT (unResourceFn (runReaderT (unResFn f) r >>= runFn'))
+  runFn' (Value resp) = return resp
+  runFn' (Error e) = do
+    b <- getErrorRenderer >>= ($ (internalServerError500, Just e))
+    hdrs <- getRespHeaders
+    return (internalServerError500, hdrs, b)
+  -- TODO handle 304 (remove content-type header, generate Etag, expires headers)
+  runFn' (Halt s) = do
+    b <- getErrorRenderer >>= ($ (s, Nothing))
+    hdrs <- getRespHeaders
+    return (s, hdrs, b)
 
 -- TODO tracing
 step :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
@@ -59,18 +73,17 @@ testEq :: (Monad m, Eq a) => ResFn rq rb s m a        -- function to test
                           -> ResFn rq rb s m (Response rb)
 testEq r a x y = r >>= \b -> if a == b then x else y
 
-call :: (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
-call = ReaderT
+callr :: (Resource rq rb m s -> ResourceFn rq rb s m (Result a)) -> ResFn rq rb s m a
+callr = ResFn . ReaderT
 
-respond :: Monad m => Status -> ResFn rq rb s m (Response rb)
--- TODO pull headers out of RqData
-respond s = return (s, [], BuilderResponseBody $ byteString "")
+callr' :: Monad m => (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
+callr' = ResFn . fmap return . ReaderT 
 
-errorResponse :: (Monad m) => Status -> ResFn rq rb s m (Response rb)
-errorResponse s = lift $ do
-  b <- getErrorRenderer >>= ($ s)
-  hdrs <- getRespHeaders
-  return (s, hdrs, b)
+call :: Monad m => ResourceFn rq rb s m a -> ResFn rq rb s m a
+call = ResFn . lift . fmap return
+
+respond :: Monad m => Status -> ResFn rq rb s m a
+respond = ResFn . return . Halt
 
 -- TODO make it part of the config or part of the resource?
 knownMethods :: [Method]
@@ -79,19 +92,28 @@ knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, meth
 decision :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 
 -- Service Available
-decision V3B13 = testEq (call serviceAvailable) True (step V3B12) (errorResponse serviceUnavailable503)
+decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (respond serviceUnavailable503)
 
 -- Known method?
-decision V3B12 = test (lift getRqMethod) known (step V3B11) (errorResponse notImplemented501) where 
+decision V3B12 = test (call getRqMethod) known (step V3B11) (respond notImplemented501) where 
   known m = elem m knownMethods
 
 -- URI too long?
-decision V3B11 = testEq (call uriTooLong) True (errorResponse requestURITooLong414) (step V3B10) 
+decision V3B11 = testEq (callr uriTooLong) True (respond requestURITooLong414) (step V3B10) 
+
+-- Method allowed?
+decision V3B10 = do
+  ms <- callr' allowedMethods
+  m  <- call getRqMethod
+  if elem m ms
+    then step V3B9
+    else call (setRespHeader "Allow" (allowHeader ms)) >> respond methodNotAllowed405
+  where allowHeader = B.intercalate ", "
 
 decision _ = Prelude.error "step not implemented"
 
 defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
-defaultErrorRenderer s = getRespBody >>= maybe (render s) return where
+defaultErrorRenderer (s, e) = getRespBody >>= maybe (render s) return where
   render (Status 404 _) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
@@ -116,7 +138,9 @@ defaultErrorRenderer s = getRespBody >>= maybe (render s) return where
                                            , byteString msg
                                            , byteString "</title></head><body><h1>"
                                            , byteString msg
-                                           , byteString "</h1>The server encountered an error while processing this request.<p><hr><address>webcrank web server</address></body></html>"
+                                           , byteString "</h1>"
+                                           , maybe (byteString msg) id e
+                                           , byteString "<p><hr><address>webcrank web server</address></body></html>"
                                            ]
 
 initRqData :: (Monad m, HasRequestInfo rq) => rq -> s -> RqData rq rb s m
