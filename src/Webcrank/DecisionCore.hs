@@ -16,7 +16,9 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B9
+data Step = V3B7
+          | V3B8
+          | V3B9
           | V3B10
           | V3B11
           | V3B12
@@ -110,6 +112,16 @@ decision V3B10 = do
     else call (setRespHeader "Allow" (allowHeader ms)) >> respond methodNotAllowed405
   where allowHeader = B.intercalate ", "
 
+-- Malformed?
+decision V3B9 = testEq (callr malformedRequest) True (respond badRequest400) (step V3B8)
+
+-- Authorized?
+decision V3B8 = do
+  authz <- callr isAuthorized
+  case authz of
+    Authorized -> step V3B7
+    (Unauthorized h) -> call (setRespHeader "WWW-Authenticate" h) >> respond unauthorized401
+
 decision _ = Prelude.error "step not implemented"
 
 defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
@@ -117,9 +129,6 @@ defaultErrorRenderer (s, e) = getRespBody >>= maybe (render s) return where
   render (Status 404 _) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
-  render (Status 414 _) = do
-    addRespHeader hContentType "text/html"
-    return $ BuilderResponseBody $ byteString "<html><head><title>414 Request-URI Too Large</title></head><body><h1>Request-URI Too Large</h1><p><hr><address>webcrank web server</address></body></html>"
   render (Status 501 _) = do
     addRespHeader hContentType "text/html"
     m <- getRqMethod

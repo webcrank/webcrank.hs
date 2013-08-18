@@ -42,3 +42,5 @@ instance Eq (ResponseBody ByteString) where
 
 type TestResource = Resource TestRq ByteString IO ()
 
+testResource :: TestResource
+testResource = resource'

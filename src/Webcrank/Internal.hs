@@ -88,3 +88,6 @@ rgets = ResourceFn . gets
 rmodify :: Monad m => (RqData rq rb s m -> RqData rq rb s m) -> ResourceFn rq rb s m ()
 rmodify f = ResourceFn $ modify f >> return ()
 
+data Authorized = Authorized | Unauthorized ByteString
+
+
