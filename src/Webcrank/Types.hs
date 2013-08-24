@@ -113,7 +113,7 @@ setRespHeader :: Monad m => HeaderName -> ByteString -> ResourceFn rq rb s m ()
 setRespHeader h v = removeRespHeader h >> addRespHeader h v 
 
 authorized :: Monad m => ResourceFn rq rb s m (Result Authorized)
-authorized = return $ return $ Authorized
+authorized = return $ return Authorized
 
 unauthorized :: Monad m => ByteString -> ResourceFn rq rb s m (Result Authorized)
 unauthorized = return . return . Unauthorized

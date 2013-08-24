@@ -5,12 +5,14 @@ module Webcrank.DecisionCore
   , Response
   ) where
 
+import Control.Monad (liftM)
 import Control.Monad.Reader (ReaderT(..))
 import Control.Monad.State (evalStateT)
 import Control.Monad.Trans.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Lazy.Builder (byteString, charUtf8)
 import Data.ByteString.Lazy.Builder.ASCII (intDec)
+import Data.Maybe (fromMaybe)
 import Data.Monoid
 import Network.HTTP.Types
 import Webcrank.Internal
@@ -36,7 +38,7 @@ instance Monad m => Monad (ResFn rq rb s m) where
     g' (Halt s) = return $ Halt s
 
 instance MonadTrans (ResFn rq rb s) where
-  lift m = ResFn $ lift $ lift $ m >>= return . return
+  lift m = ResFn $ lift $ lift $ liftM return m
 
 -- TODO add more configuration
 --   * error handler
@@ -58,7 +60,7 @@ runResource r rq = runInit (rqInit r) >>= go where
     return (s, hdrs, b)
 
 -- TODO tracing
-step :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
+step :: (Functor m, Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 step = decision
 
 test :: Monad m => ResFn rq rb s m a        -- function to test
@@ -78,10 +80,10 @@ testEq r a x y = r >>= \b -> if a == b then x else y
 callr :: (Resource rq rb m s -> ResourceFn rq rb s m (Result a)) -> ResFn rq rb s m a
 callr = ResFn . ReaderT
 
-callr' :: Monad m => (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
+callr' :: Functor m => (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
 callr' = ResFn . fmap return . ReaderT 
 
-call :: Monad m => ResourceFn rq rb s m a -> ResFn rq rb s m a
+call :: (Functor m, Monad m) => ResourceFn rq rb s m a -> ResFn rq rb s m a
 call = ResFn . lift . fmap return
 
 respond :: Monad m => Status -> ResFn rq rb s m a
@@ -91,14 +93,14 @@ respond = ResFn . return . Halt
 knownMethods :: [Method]
 knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, methodTrace, methodConnect, methodOptions]
 
-decision :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
+decision :: (Functor m, Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 
 -- Service Available
 decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (respond serviceUnavailable503)
 
 -- Known method?
 decision V3B12 = test (call getRqMethod) known (step V3B11) (respond notImplemented501) where 
-  known m = elem m knownMethods
+  known m = m `elem` knownMethods
 
 -- URI too long?
 decision V3B11 = testEq (callr uriTooLong) True (respond requestURITooLong414) (step V3B10) 
@@ -107,7 +109,7 @@ decision V3B11 = testEq (callr uriTooLong) True (respond requestURITooLong414) (
 decision V3B10 = do
   ms <- callr' allowedMethods
   m  <- call getRqMethod
-  if elem m ms
+  if m `elem` ms
     then step V3B9
     else call (setRespHeader "Allow" (allowHeader ms)) >> respond methodNotAllowed405
   where allowHeader = B.intercalate ", "
@@ -148,7 +150,7 @@ defaultErrorRenderer (s, e) = getRespBody >>= maybe (render s) return where
                                            , byteString "</title></head><body><h1>"
                                            , byteString msg
                                            , byteString "</h1>"
-                                           , maybe (byteString msg) id e
+                                           , fromMaybe (byteString msg) e
                                            , byteString "<p><hr><address>webcrank web server</address></body></html>"
                                            ]
 

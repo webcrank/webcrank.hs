@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
@@ -57,17 +58,7 @@ instance Monad Result where
   (Halt s) >>= _ = Halt s
 
 newtype ResourceFn rq rb s m a = ResourceFn { unResourceFn :: StateT (RqData rq rb s m) m a }
-
-instance Monad m => Functor (ResourceFn rq rb s m) where
-  fmap f r = ResourceFn $ unResourceFn r >>= return . f
-
-instance Monad m => Applicative (ResourceFn rq rb s m) where
-  pure = return
-  (<*>) = ap
-
-instance Monad m => Monad (ResourceFn rq rb s m) where
-  return = ResourceFn . return
-  f >>= g = ResourceFn $ unResourceFn f >>= unResourceFn . g
+  deriving (Functor, Applicative, Monad)
 
 instance Monad m => MonadState s (ResourceFn rq rb s m) where
   get = rgets rqState

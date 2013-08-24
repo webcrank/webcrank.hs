@@ -33,7 +33,7 @@ type TestRes = Response ByteString
 instance Show (ResponseBody ByteString) where
   show (FileResponseBody fp r) = "FileResponseBody " ++ fp ++ " (" ++ show r ++ ")"
   show (StreamResponseBody b) = "StreamResponseBody " ++ show b
-  show (BuilderResponseBody sb) = "BuilderResponseBody " ++ (show $ toLazyByteString sb)
+  show (BuilderResponseBody sb) = "BuilderResponseBody " ++ show (toLazyByteString sb)
 
 instance Eq (ResponseBody ByteString) where
   (FileResponseBody fp r) == (FileResponseBody fp' r') = fp == fp' && r == r'
