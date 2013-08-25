@@ -18,7 +18,8 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B5
+data Step = V3B4
+          | V3B5
           | V3B6
           | V3B7
           | V3B8
@@ -131,6 +132,9 @@ decision V3B7 = testEq (callr forbidden) True (respond forbidden403) (step V3B6)
 
 -- Okay Content-* Headers?
 decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (respond notImplemented501)
+
+-- Known Content-Type?
+decision V3B5 = testEq (callr knownContentType) True (step V3B4) (respond unsupportedMediaType415)
 
 decision _ = Prelude.error "step not implemented"
 

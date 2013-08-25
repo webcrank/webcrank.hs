@@ -58,9 +58,8 @@ data Resource rq rb m s = Resource
     -- | @False@ will result in @501 Not Implemented@. Defaults to @True@.
   , validContentHeaders :: ResourceFn rq rb s m (Result Bool)
 
-
-    -- | @False@ will result in @404 Not Found@. Defaults to @True@.
---   , resourceExists :: ResourceFn rb s m Bool
+    -- | @False@ will result in @415 Unsupported Media Type@. Defaults to @True@.
+  , knownContentType :: ResourceFn rq rb s m (Result Bool)
   }
 
 -- | Constructs a @Resource@ with the given initializer and defaults for all the other other properties.
@@ -74,9 +73,7 @@ resource i = Resource
   , isAuthorized         = value Authorized
   , forbidden            = value False
   , validContentHeaders  = value True
---   , resourceExists       = value True
---   , isAuthorized         = value Authz
---   , allowMissingPost     = value False
+  , knownContentType     = value True
   }
 
 resource' :: Monad m => Resource rq rb m ()

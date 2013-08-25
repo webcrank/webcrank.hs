@@ -73,3 +73,9 @@ testInvalidContentHeaders = resp501 @=?> runResource rs testRq where
   resp501 = testResp notImplemented501
                      [(hContentType, "text/html")] 
                      (BuilderResponseBody $ byteString "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>Not Implemented<p><hr><address>webcrank web server</address></body></html>")
+
+testUnknownContentType = resp415 @=?> runResource rs testRq where
+  rs = resource' { knownContentType = value False }
+  resp415 = testResp unsupportedMediaType415
+                     [(hContentType, "text/html")] 
+                     (BuilderResponseBody $ byteString "<html><head><title>415 Unsupported Media Type</title></head><body><h1>Unsupported Media Type</h1>Unsupported Media Type<p><hr><address>webcrank web server</address></body></html>")
