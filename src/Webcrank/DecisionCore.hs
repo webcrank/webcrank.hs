@@ -18,7 +18,7 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B3
+data Step = V3B3 | V3C3
           | V3B4
           | V3B5
           | V3B6
@@ -90,8 +90,13 @@ callr' = ResFn . fmap return . ReaderT
 call :: (Functor m, Monad m) => ResourceFn rq rb s m a -> ResFn rq rb s m a
 call = ResFn . lift . fmap return
 
-respond :: Monad m => Status -> ResFn rq rb s m a
-respond = ResFn . return . Halt
+responds :: Monad m => Status -> ResFn rq rb s m a
+responds = ResFn . return . Halt
+
+respond :: (Functor m, Monad m) => Status -> ResponseHeaders -> ResFn rq rb s m a
+respond s hs = do 
+  call $ putRespHeaders hs
+  ResFn $ return $ Halt s
 
 -- TODO make it part of the config or part of the resource?
 knownMethods :: [Method]
@@ -100,14 +105,14 @@ knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, meth
 decision :: (Functor m, Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 
 -- Service Available
-decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (respond serviceUnavailable503)
+decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (responds serviceUnavailable503)
 
 -- Known method?
-decision V3B12 = test (call getRqMethod) known (step V3B11) (respond notImplemented501) where 
+decision V3B12 = test (call getRqMethod) known (step V3B11) (responds notImplemented501) where 
   known m = m `elem` knownMethods
 
 -- URI too long?
-decision V3B11 = testEq (callr uriTooLong) True (respond requestURITooLong414) (step V3B10) 
+decision V3B11 = testEq (callr uriTooLong) True (responds requestURITooLong414) (step V3B10) 
 
 -- Method allowed?
 decision V3B10 = do
@@ -115,30 +120,37 @@ decision V3B10 = do
   m  <- call getRqMethod
   if m `elem` ms
     then step V3B9
-    else call (setRespHeader "Allow" (allowHeader ms)) >> respond methodNotAllowed405
+    else call (putRespHeader "Allow" (allowHeader ms)) >> responds methodNotAllowed405
   where allowHeader = B.intercalate ", "
 
 -- Malformed?
-decision V3B9 = testEq (callr malformedRequest) True (respond badRequest400) (step V3B8)
+decision V3B9 = testEq (callr malformedRequest) True (responds badRequest400) (step V3B8)
 
 -- Authorized?
 decision V3B8 = do
   authz <- callr isAuthorized
   case authz of
     Authorized -> step V3B7
-    (Unauthorized h) -> call (setRespHeader "WWW-Authenticate" h) >> respond unauthorized401
+    (Unauthorized h) -> call (putRespHeader "WWW-Authenticate" h) >> responds unauthorized401
 
 -- Forbidden?
-decision V3B7 = testEq (callr forbidden) True (respond forbidden403) (step V3B6)
+decision V3B7 = testEq (callr forbidden) True (responds forbidden403) (step V3B6)
 
 -- Okay Content-* Headers?
-decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (respond notImplemented501)
+decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (responds notImplemented501)
 
 -- Known Content-Type?
-decision V3B5 = testEq (callr knownContentType) True (step V3B4) (respond unsupportedMediaType415)
+decision V3B5 = testEq (callr knownContentType) True (step V3B4) (responds unsupportedMediaType415)
 
 -- Req Entity Too Large?
-decision V3B4 = testEq (callr validEntityLength) True (step V3B3) (respond requestEntityTooLarge413)
+decision V3B4 = testEq (callr validEntityLength) True (step V3B3) (responds requestEntityTooLarge413)
+
+-- OPTIONS?
+decision V3B3 = do
+  m <- call getRqMethod
+  if m == methodOptions
+    then callr' options >>= respond ok200
+    else step V3C3
 
 decision _ = Prelude.error "step not implemented"
 

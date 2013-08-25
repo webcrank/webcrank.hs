@@ -85,3 +85,11 @@ testEntityTooLarge = resp413 @=?> runResource rs testRq where
   resp413 = testResp requestEntityTooLarge413
                      [(hContentType, "text/html")] 
                      (BuilderResponseBody $ byteString "<html><head><title>413 Request Entity Too Large</title></head><body><h1>Request Entity Too Large</h1>Request Entity Too Large<p><hr><address>webcrank web server</address></body></html>")
+
+testOptions = resp200 @=?> runResource rs rq where
+  hdrs = [("X-Test", "1, 2, 3")]
+  rs = resource' { options = return hdrs }
+  rq = testRq { testRqMethod = methodOptions }
+  resp200 = testResp ok200
+                     hdrs
+                     (BuilderResponseBody $ byteString "")

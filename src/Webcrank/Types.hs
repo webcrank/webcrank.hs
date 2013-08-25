@@ -14,7 +14,7 @@ module Webcrank.Types
   , modifyRespHeaders 
   , addRespHeader
   , removeRespHeader
-  , setRespHeader
+  , putRespHeader
   , Resource(..)
   , resource
   , resource'
@@ -63,6 +63,9 @@ data Resource rq rb m s = Resource
 
     -- | @False@ will result in @413 Request Entity Too Large@. Defaults to @True@.
   , validEntityLength :: ResourceFn rq rb s m (Result Bool)
+
+    -- | If the OPTIONS method is supported and is used, the headers that should appear in the response.
+  , options :: ResourceFn rq rb s m ResponseHeaders
   }
 
 -- | Constructs a @Resource@ with the given initializer and defaults for all the other other properties.
@@ -78,6 +81,7 @@ resource i = Resource
   , validContentHeaders  = value True
   , knownContentType     = value True
   , validEntityLength    = value True
+  , options              = return []
   }
 
 resource' :: Monad m => Resource rq rb m ()
@@ -118,8 +122,8 @@ addRespHeader h v = modifyRespHeaders ((h, v) :)
 removeRespHeader :: Monad m => HeaderName -> ResourceFn rq rb s m ()
 removeRespHeader h = modifyRespHeaders (filter ((h ==) . fst))
 
-setRespHeader :: Monad m => HeaderName -> ByteString -> ResourceFn rq rb s m ()
-setRespHeader h v = removeRespHeader h >> addRespHeader h v 
+putRespHeader :: Monad m => HeaderName -> ByteString -> ResourceFn rq rb s m ()
+putRespHeader h v = removeRespHeader h >> addRespHeader h v 
 
 authorized :: Monad m => ResourceFn rq rb s m (Result Authorized)
 authorized = return $ return Authorized
