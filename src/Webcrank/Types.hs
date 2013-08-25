@@ -55,6 +55,10 @@ data Resource rq rb m s = Resource
     -- | @True@ will result in @403 Forbidden@. Defaults to @False@.
   , forbidden :: ResourceFn rq rb s m (Result Bool)
 
+    -- | @False@ will result in @501 Not Implemented@. Defaults to @True@.
+  , validContentHeaders :: ResourceFn rq rb s m (Result Bool)
+
+
     -- | @False@ will result in @404 Not Found@. Defaults to @True@.
 --   , resourceExists :: ResourceFn rb s m Bool
   }
@@ -69,6 +73,7 @@ resource i = Resource
   , malformedRequest     = value False
   , isAuthorized         = value Authorized
   , forbidden            = value False
+  , validContentHeaders  = value True
 --   , resourceExists       = value True
 --   , isAuthorized         = value Authz
 --   , allowMissingPost     = value False

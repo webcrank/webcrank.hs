@@ -67,3 +67,9 @@ testForbidden = resp403 @=?> runResource rs testRq where
   resp403 = testResp forbidden403
                      [(hContentType, "text/html")] 
                      (BuilderResponseBody $ byteString "<html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1>Forbidden<p><hr><address>webcrank web server</address></body></html>")
+
+testInvalidContentHeaders = resp501 @=?> runResource rs testRq where
+  rs = resource' { validContentHeaders = value False }
+  resp501 = testResp notImplemented501
+                     [(hContentType, "text/html")] 
+                     (BuilderResponseBody $ byteString "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>Not Implemented<p><hr><address>webcrank web server</address></body></html>")

@@ -18,7 +18,8 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B6
+data Step = V3B5
+          | V3B6
           | V3B7
           | V3B8
           | V3B9
@@ -127,6 +128,9 @@ decision V3B8 = do
 
 -- Forbidden?
 decision V3B7 = testEq (callr forbidden) True (respond forbidden403) (step V3B6)
+
+-- Okay Content-* Headers?
+decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (respond notImplemented501)
 
 decision _ = Prelude.error "step not implemented"
 
