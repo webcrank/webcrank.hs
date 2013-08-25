@@ -18,7 +18,8 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B7
+data Step = V3B6
+          | V3B7
           | V3B8
           | V3B9
           | V3B10
@@ -123,6 +124,9 @@ decision V3B8 = do
   case authz of
     Authorized -> step V3B7
     (Unauthorized h) -> call (setRespHeader "WWW-Authenticate" h) >> respond unauthorized401
+
+-- Forbidden?
+decision V3B7 = testEq (callr forbidden) True (respond forbidden403) (step V3B6)
 
 decision _ = Prelude.error "step not implemented"
 

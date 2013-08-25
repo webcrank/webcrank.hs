@@ -52,6 +52,9 @@ data Resource rq rb m s = Resource
     -- Defaults to @Authz@.
   , isAuthorized :: ResourceFn rq rb s m (Result Authorized)
 
+    -- | @True@ will result in @403 Forbidden@. Defaults to @False@.
+  , forbidden :: ResourceFn rq rb s m (Result Bool)
+
     -- | @False@ will result in @404 Not Found@. Defaults to @True@.
 --   , resourceExists :: ResourceFn rb s m Bool
   }
@@ -65,9 +68,9 @@ resource i = Resource
   , allowedMethods       = return [methodGet, methodHead]
   , malformedRequest     = value False
   , isAuthorized         = value Authorized
+  , forbidden            = value False
 --   , resourceExists       = value True
 --   , isAuthorized         = value Authz
---   , forbidden            = value False
 --   , allowMissingPost     = value False
   }
 

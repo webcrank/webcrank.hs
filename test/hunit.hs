@@ -62,3 +62,8 @@ testUnauthorized = resp401 @=?> runResource rs testRq where
                      [(hContentType, "text/html"), ("WWW-Authenticate", realm)] 
                      (BuilderResponseBody $ byteString "<html><head><title>401 Unauthorized</title></head><body><h1>Unauthorized</h1>Unauthorized<p><hr><address>webcrank web server</address></body></html>")
 
+testForbidden = resp403 @=?> runResource rs testRq where
+  rs = resource' { forbidden = value True }
+  resp403 = testResp forbidden403
+                     [(hContentType, "text/html")] 
+                     (BuilderResponseBody $ byteString "<html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1>Forbidden<p><hr><address>webcrank web server</address></body></html>")

@@ -81,4 +81,3 @@ rmodify f = ResourceFn $ modify f >> return ()
 
 data Authorized = Authorized | Unauthorized ByteString
 
-
