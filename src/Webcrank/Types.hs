@@ -60,6 +60,9 @@ data Resource rq rb m s = Resource
 
     -- | @False@ will result in @415 Unsupported Media Type@. Defaults to @True@.
   , knownContentType :: ResourceFn rq rb s m (Result Bool)
+
+    -- | @False@ will result in @413 Request Entity Too Large@. Defaults to @True@.
+  , validEntityLength :: ResourceFn rq rb s m (Result Bool)
   }
 
 -- | Constructs a @Resource@ with the given initializer and defaults for all the other other properties.
@@ -74,6 +77,7 @@ resource i = Resource
   , forbidden            = value False
   , validContentHeaders  = value True
   , knownContentType     = value True
+  , validEntityLength    = value True
   }
 
 resource' :: Monad m => Resource rq rb m ()

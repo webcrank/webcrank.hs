@@ -79,3 +79,9 @@ testUnknownContentType = resp415 @=?> runResource rs testRq where
   resp415 = testResp unsupportedMediaType415
                      [(hContentType, "text/html")] 
                      (BuilderResponseBody $ byteString "<html><head><title>415 Unsupported Media Type</title></head><body><h1>Unsupported Media Type</h1>Unsupported Media Type<p><hr><address>webcrank web server</address></body></html>")
+
+testEntityTooLarge = resp413 @=?> runResource rs testRq where
+  rs = resource' { validEntityLength = value False }
+  resp413 = testResp requestEntityTooLarge413
+                     [(hContentType, "text/html")] 
+                     (BuilderResponseBody $ byteString "<html><head><title>413 Request Entity Too Large</title></head><body><h1>Request Entity Too Large</h1>Request Entity Too Large<p><hr><address>webcrank web server</address></body></html>")

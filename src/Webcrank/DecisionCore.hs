@@ -18,7 +18,8 @@ import Network.HTTP.Types
 import Webcrank.Internal
 import Webcrank.Types
 
-data Step = V3B4
+data Step = V3B3
+          | V3B4
           | V3B5
           | V3B6
           | V3B7
@@ -135,6 +136,9 @@ decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (respond not
 
 -- Known Content-Type?
 decision V3B5 = testEq (callr knownContentType) True (step V3B4) (respond unsupportedMediaType415)
+
+-- Req Entity Too Large?
+decision V3B4 = testEq (callr validEntityLength) True (step V3B3) (respond requestEntityTooLarge413)
 
 decision _ = Prelude.error "step not implemented"
 
