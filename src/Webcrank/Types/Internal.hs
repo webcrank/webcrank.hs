@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Webcrank.Internal where 
+module Webcrank.Types.Internal where 
 
 import Control.Applicative
 import Control.Monad.State
@@ -10,6 +10,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Builder (Builder)
 import Network.HTTP.Types (Method, Status)
 import Network.HTTP.Types.Header (HeaderName, ResponseHeaders)
+import Webcrank.Types.MediaType
 
 class HasRequestInfo r where
   rqMethod :: r -> Method
@@ -20,7 +21,7 @@ data ResponseBody b
   | StreamResponseBody b
   | BuilderResponseBody Builder
 
-type ErrorRenderer rq rb s m = (Status, Maybe Builder) -> ResourceFn rq rb s m (ResponseBody rb)
+type ErrorRenderer rq rb s m = (Status, Maybe Builder) -> ResourceFn rq rb s m (Maybe (ResponseBody rb))
 
 -- TODO adding tracing option
 newtype Init m s = Init { runInit :: m s }
@@ -29,6 +30,7 @@ data RqData rq rb s m = RqData
   { rqInfo :: rq
   , rqState :: s
   , errorRenderer :: ErrorRenderer rq rb s m
+  , respMediaType  :: MediaType
   , respHdrs :: ResponseHeaders
   , respBody :: Maybe (ResponseBody rb)
   }
@@ -67,17 +69,26 @@ instance Monad m => MonadState s (ResourceFn rq rb s m) where
 instance MonadTrans (ResourceFn rq rb s) where
   lift = ResourceFn . lift
 
+rgets :: Monad m => (RqData rq rb s m -> a) -> ResourceFn rq rb s m a
+rgets = ResourceFn . gets
+
+rmodify :: Monad m => (RqData rq rb s m -> RqData rq rb s m) -> ResourceFn rq rb s m ()
+rmodify f = ResourceFn $ modify f >> return ()
+
 getErrorRenderer :: Monad m => ResourceFn rq rb s m (ErrorRenderer rq rb s m)
 getErrorRenderer = rgets errorRenderer
 
 getRqMethod :: (Monad m, HasRequestInfo rq) => ResourceFn rq rb s m Method
 getRqMethod = rgets (rqMethod . rqInfo)
 
-rgets :: Monad m => (RqData rq rb s m -> a) -> ResourceFn rq rb s m a
-rgets = ResourceFn . gets
+getRqHeader :: (Monad m, HasRequestInfo rq) => HeaderName -> ResourceFn rq rb s m (Maybe ByteString)
+getRqHeader h = rgets (rqHeader h . rqInfo)
 
-rmodify :: Monad m => (RqData rq rb s m -> RqData rq rb s m) -> ResourceFn rq rb s m ()
-rmodify f = ResourceFn $ modify f >> return ()
+getRespMediaType :: Monad m => ResourceFn rq rb s m MediaType
+getRespMediaType = rgets respMediaType
+
+putRespMediaType :: Monad m => MediaType -> ResourceFn rq rb s m ()
+putRespMediaType t = rmodify (\rd -> rd { respMediaType = t })
 
 data Authorized = Authorized | Unauthorized ByteString
 

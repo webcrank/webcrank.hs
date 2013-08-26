@@ -23,10 +23,13 @@ flag                small_base
 
 library
   build-depends:
-                    base                            >= 3          && < 5
+                    attoparsec
+                  , base                            >= 3          && < 5
                   , bytestring
+                  , case-insensitive                >= 1.0
                   , http-types                      >= 0.8.0
                   , mtl
+                  , semigroups
                   , text                            >= 0.11
                   , transformers
 
@@ -38,11 +41,15 @@ library
 
   exposed-modules:
                     Webcrank
-                    Webcrank.Types
+                    Webcrank.Conneg
                     Webcrank.DecisionCore
+                    Webcrank.Parsers
+                    Webcrank.Types
+                    Webcrank.Types.MediaType
+                    Webcrank.Types.Resource
 
   other-modules:
-                    Webcrank.Internal
+                    Webcrank.Types.Internal
 
 test-suite hunit
   type:             exitcode-stdio-1.0
@@ -53,6 +60,7 @@ test-suite hunit
                   , http-types
                   , HUnit
                   , mtl
+                  , semigroups
                   , tasty
                   , tasty-hunit
                   , webcrank

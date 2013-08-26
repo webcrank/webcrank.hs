@@ -12,14 +12,19 @@ import Control.Monad.Trans.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Lazy.Builder (byteString, charUtf8)
 import Data.ByteString.Lazy.Builder.ASCII (intDec)
+import Data.Functor ((<$>))
 import Data.Maybe (fromMaybe)
 import Data.Monoid
+import qualified Data.List.NonEmpty as NEL
 import Network.HTTP.Types
-import Webcrank.Internal
-import Webcrank.Types
+import Webcrank.Conneg
+import Webcrank.Parsers
+import Webcrank.Types.Internal
+import Webcrank.Types.MediaType
+import Webcrank.Types.Resource
 
 data Step = V3B3 | V3C3
-          | V3B4
+          | V3B4 | V3C4 | V3D4
           | V3B5
           | V3B6
           | V3B7
@@ -30,7 +35,7 @@ data Step = V3B3 | V3C3
           | V3B12
           | V3B13
 
-type Response rb = (Status, ResponseHeaders, ResponseBody rb)
+type Response rb = (Status, ResponseHeaders, Maybe (ResponseBody rb))
 
 newtype ResFn rq rb s m a = ResFn { unResFn :: ReaderT (Resource rq rb m s) (ResourceFn rq rb s m) (Result a) }
 
@@ -54,18 +59,25 @@ runResource r rq = runInit (rqInit r) >>= go where
   runFn f = evalStateT (unResourceFn (runReaderT (unResFn f) r >>= runFn'))
   runFn' (Value resp) = return resp
   runFn' (Error e) = do
-    b <- getErrorRenderer >>= ($ (internalServerError500, Just e))
+    b <- renderError internalServerError500 (Just e)
     hdrs <- getRespHeaders
     return (internalServerError500, hdrs, b)
   -- TODO handle 304 (remove content-type header, generate Etag, expires headers)
   runFn' (Halt s) = do
-    b <- getErrorRenderer >>= ($ (s, Nothing))
+    b <- if statusCode s >= 400 && statusCode s < 600 
+           then renderError s Nothing
+           else getRespBody
     hdrs <- getRespHeaders
     return (s, hdrs, b)
+  renderError s e = getRespBody >>= maybe renderErrorBody (return . Just) where
+    renderErrorBody = getErrorRenderer >>= ($ (s, e))
 
 -- TODO tracing
 step :: (Functor m, Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 step = decision
+
+v3d4 :: (Functor m, Monad m, HasRequestInfo rq) => MediaType -> ResFn rq rb s m (Response rb)
+v3d4 = (>> step V3D4) . call . putRespMediaType
 
 test :: Monad m => ResFn rq rb s m a        -- function to test
                 -> (a -> Bool)              -- test function
@@ -152,10 +164,26 @@ decision V3B3 = do
     then callr' options >>= respond ok200
     else step V3C3
 
+-- Accept exists?
+decision V3C3 = do
+  accept <- call $ getRqHeader hAccept
+  cs <- callr' contentTypesProvided 
+  let def = v3d4 $ fst $ NEL.head cs
+      v3c4 = const $ step V3C4
+  maybe def v3c4 accept
+
+-- Acceptable media type available?
+decision V3C4 = do
+  ctypes <- callr' contentTypesProvided
+  accept <- call $ getRqHeader hAccept
+  let mtypes = fst <$> NEL.toList ctypes
+      choice = accept >>= chooseMediaType mtypes . parseAcceptHeader
+  maybe (responds notAcceptable406) v3d4 choice
+
 decision _ = Prelude.error "step not implemented"
 
-defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
-defaultErrorRenderer (s, e) = getRespBody >>= maybe (render s) return where
+defaultErrorRenderer :: (Functor m, Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
+defaultErrorRenderer (s, e) = Just <$> render s where
   render (Status 404 _) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
@@ -164,11 +192,11 @@ defaultErrorRenderer (s, e) = getRespBody >>= maybe (render s) return where
     m <- getRqMethod
     return $ BuilderResponseBody $ mconcat [ byteString "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>The server does not support the "
                                            , byteString m
-                                           , byteString " method.<br><p><hr><address>webcrank web server</address></body></html>"
+                                           , byteString " method.<p><hr><address>webcrank web server</address></body></html>"
                                            ]
   render (Status 503 _) = do
     addRespHeader hContentType "text/html"
-    return $ BuilderResponseBody $ byteString "<html><head><title>503 Service Unavailable</title></head><body><h1>Service Unavailable</h1>The server is currently unable to handle the request due to a temporary overloading or maintenance of the server.<br><p><hr><address>webcrank web server</address></body></html>"
+    return $ BuilderResponseBody $ byteString "<html><head><title>503 Service Unavailable</title></head><body><h1>Service Unavailable</h1>The server is currently unable to handle the request due to a temporary overloading or maintenance of the server.<p><hr><address>webcrank web server</address></body></html>"
   render (Status c msg) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ mconcat [ byteString "<html><head><title>" 
@@ -182,12 +210,13 @@ defaultErrorRenderer (s, e) = getRespBody >>= maybe (render s) return where
                                            , byteString "<p><hr><address>webcrank web server</address></body></html>"
                                            ]
 
-initRqData :: (Monad m, HasRequestInfo rq) => rq -> s -> RqData rq rb s m
+initRqData :: (Functor m, Monad m, HasRequestInfo rq) => rq -> s -> RqData rq rb s m
 initRqData rq s = RqData
-  { rqInfo = rq
-  , rqState = s
+  { rqInfo        = rq
+  , rqState       = s
   , errorRenderer = defaultErrorRenderer
-  , respHdrs = []
-  , respBody = Nothing
+  , respMediaType = MediaType "application" "octet-stream" []
+  , respHdrs      = []
+  , respBody      = Nothing
   }
 
