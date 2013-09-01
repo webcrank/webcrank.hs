@@ -9,7 +9,6 @@ import Data.ByteString.Lazy.Builder as BB
 import Data.ByteString.Lazy.Builder.ASCII (doubleDec)
 import Data.List (sortBy)
 import Network.HTTP.Types
-import Test.HUnit
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck

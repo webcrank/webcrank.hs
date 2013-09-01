@@ -2,7 +2,6 @@
 
 module ConnegTests where
 
-import Test.HUnit
 import Test.Tasty
 import Test.Tasty.HUnit
 

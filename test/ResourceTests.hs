@@ -3,7 +3,6 @@
 module ResourceTests where
 
 import Network.HTTP.Types
-import Test.HUnit
 import Test.Tasty
 import Test.Tasty.HUnit
 

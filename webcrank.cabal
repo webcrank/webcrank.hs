@@ -59,7 +59,6 @@ test-suite tests
                   , bytestring
                   , case-insensitive
                   , http-types
-                  , HUnit
                   , mtl
                   , semigroups
                   , tasty            >= 0.3
