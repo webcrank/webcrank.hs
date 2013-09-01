@@ -1,4 +1,4 @@
-.PHONY: config build test install-deps
+.PHONY: build clean config install-deps test
 
 default: test
 
@@ -14,3 +14,5 @@ build: config
 test: build
 	cabal test
 
+clean:
+	cabal clean

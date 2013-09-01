@@ -5,15 +5,16 @@ module Webcrank.DecisionCore
   , Response
   ) where
 
-import Control.Monad (liftM)
+import Control.Applicative
+import Control.Monad
 import Control.Monad.Reader (ReaderT(..))
 import Control.Monad.State (evalStateT)
 import Control.Monad.Trans.Class
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Lazy.Builder (byteString, charUtf8)
 import Data.ByteString.Lazy.Builder.ASCII (intDec)
-import Data.Functor ((<$>))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid
 import qualified Data.List.NonEmpty as NEL
 import Network.HTTP.Types
@@ -25,8 +26,8 @@ import Webcrank.Types.Resource
 
 data Step = V3B3 | V3C3
           | V3B4 | V3C4 | V3D4
-          | V3B5
-          | V3B6
+          | V3B5        | V3D5 | V3E5
+          | V3B6               | V3E6 | V3F6
           | V3B7
           | V3B8
           | V3B9
@@ -38,6 +39,13 @@ data Step = V3B3 | V3C3
 type Response rb = (Status, ResponseHeaders, Maybe (ResponseBody rb))
 
 newtype ResFn rq rb s m a = ResFn { unResFn :: ReaderT (Resource rq rb m s) (ResourceFn rq rb s m) (Result a) }
+
+instance Monad m => Functor (ResFn rq rb s m) where
+  fmap = liftM
+
+instance Monad m => Applicative (ResFn rq rb s m) where
+  pure = return
+  (<*>) = ap
 
 instance Monad m => Monad (ResFn rq rb s m) where
   return = ResFn . return . return
@@ -53,7 +61,7 @@ instance MonadTrans (ResFn rq rb s) where
 --   * error handler
 --   * app base
 --   * tracing
-runResource :: (Functor m, Monad m, HasRequestInfo rq) => Resource rq rb m s -> rq -> m (Response rb)
+runResource :: (Monad m, HasRequestInfo rq) => Resource rq rb m s -> rq -> m (Response rb)
 runResource r rq = runInit (rqInit r) >>= go where
   go s = runFn (decision V3B13) (initRqData rq s)
   runFn f = evalStateT (unResourceFn (runReaderT (unResFn f) r >>= runFn'))
@@ -73,10 +81,10 @@ runResource r rq = runInit (rqInit r) >>= go where
     renderErrorBody = getErrorRenderer >>= ($ (s, e))
 
 -- TODO tracing
-step :: (Functor m, Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
+step :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 step = decision
 
-v3d4 :: (Functor m, Monad m, HasRequestInfo rq) => MediaType -> ResFn rq rb s m (Response rb)
+v3d4 :: (Monad m, HasRequestInfo rq) => MediaType -> ResFn rq rb s m (Response rb)
 v3d4 = (>> step V3D4) . call . putRespMediaType
 
 test :: Monad m => ResFn rq rb s m a        -- function to test
@@ -96,16 +104,16 @@ testEq r a x y = r >>= \b -> if a == b then x else y
 callr :: (Resource rq rb m s -> ResourceFn rq rb s m (Result a)) -> ResFn rq rb s m a
 callr = ResFn . ReaderT
 
-callr' :: Functor m => (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
-callr' = ResFn . fmap return . ReaderT 
+callr' :: Monad m => (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
+callr' = ResFn . liftM return . ReaderT 
 
-call :: (Functor m, Monad m) => ResourceFn rq rb s m a -> ResFn rq rb s m a
-call = ResFn . lift . fmap return
+call :: Monad m => ResourceFn rq rb s m a -> ResFn rq rb s m a
+call = ResFn . lift . liftM return
 
 responds :: Monad m => Status -> ResFn rq rb s m a
 responds = ResFn . return . Halt
 
-respond :: (Functor m, Monad m) => Status -> ResponseHeaders -> ResFn rq rb s m a
+respond :: Monad m => Status -> ResponseHeaders -> ResFn rq rb s m a
 respond s hs = do 
   call $ putRespHeaders hs
   ResFn $ return $ Halt s
@@ -114,7 +122,7 @@ respond s hs = do
 knownMethods :: [Method]
 knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, methodTrace, methodConnect, methodOptions]
 
-decision :: (Functor m, Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
+decision :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 
 -- Service Available
 decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (responds serviceUnavailable503)
@@ -180,10 +188,27 @@ decision V3C4 = do
       choice = accept >>= chooseMediaType mtypes . parseAcceptHeader
   maybe (responds notAcceptable406) v3d4 choice
 
+-- Accept-Language exists?
+decision V3D4 = test (call $ getRqHeader hAcceptLanguage) isNothing (step V3E5) (step V3D5)
+
+-- Acceptable Language available?
+-- TODO implement proper conneg
+decision V3D5 = testEq (return True) True (step V3E5) (responds notAcceptable406)
+
+-- Accept-Charset exists?
+decision V3E5 = call (getRqHeader "Accept-Charset") >>= choose where
+  choose Nothing = chooseProvidedCharset "*" >>= call . putRespCharset >> step V3F6
+  choose _ = step V3E6
+
 decision _ = Prelude.error "step not implemented"
 
-defaultErrorRenderer :: (Functor m, Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
-defaultErrorRenderer (s, e) = Just <$> render s where
+chooseProvidedCharset :: Monad m => ByteString -> ResFn rq rb s m (Maybe Charset)
+chooseProvidedCharset acc = choose <$> callr' charsetsProvided where
+  choose NoCharset = Nothing
+  choose (CharsetsProvided cs) = chooseCharset (fst <$> NEL.toList cs) acc
+
+defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
+defaultErrorRenderer (s, e) = liftM Just (render s) where
   render (Status 404 _) = do
     addRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
@@ -210,12 +235,13 @@ defaultErrorRenderer (s, e) = Just <$> render s where
                                            , byteString "<p><hr><address>webcrank web server</address></body></html>"
                                            ]
 
-initRqData :: (Functor m, Monad m, HasRequestInfo rq) => rq -> s -> RqData rq rb s m
+initRqData :: (Monad m, HasRequestInfo rq) => rq -> s -> RqData rq rb s m
 initRqData rq s = RqData
   { rqInfo        = rq
   , rqState       = s
   , errorRenderer = defaultErrorRenderer
   , respMediaType = MediaType "application" "octet-stream" []
+  , respCharset   = Nothing
   , respHdrs      = []
   , respBody      = Nothing
   }

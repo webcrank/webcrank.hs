@@ -4,6 +4,8 @@ module Webcrank.Types.Resource
   , ErrorRenderer
   , ResponseBody(..)
   , ContentTypesProvided
+  , Charset
+  , CharsetsProvided(..)
   , resource
   , resource'
   , initOk
@@ -33,6 +35,10 @@ import Webcrank.Types.Internal
 import Webcrank.Types.MediaType
 
 type ContentTypesProvided rq rb s m = NonEmpty (MediaType, ResourceFn rq rb s m (Result (ResponseBody rb)))
+
+data CharsetsProvided rb
+  = NoCharset 
+  | CharsetsProvided (NonEmpty (Charset, rb -> rb))
 
 data Resource rq rb m s = Resource
   { -- | Perform some initialization for the request and return a state, @s@,
@@ -75,6 +81,9 @@ data Resource rq rb m s = Resource
     -- header with a value that does not appear as a @MediaType@ in any of the tuples, then a @406 Not Acceptable@ will be sent.
     -- If there is a matching @MediaType@, that function is used to create the entity when a response should include one.
   , contentTypesProvided :: ResourceFn rq rb s m (ContentTypesProvided rq rb s m)
+
+    -- | Used on GET requests to ensure that the entity is in @Charset@.
+  , charsetsProvided :: ResourceFn rq rb s m (CharsetsProvided rb)
   }
 
 -- | Constructs a @Resource@ with the given initializer and defaults for all the other other properties.
@@ -94,6 +103,7 @@ resource i cs = Resource
   , validEntityLength    = value True
   , options              = return []
   , contentTypesProvided = cs
+  , charsetsProvided     = return NoCharset
   }
 
 resource' :: Monad m => ResourceFn rq rb () m (NonEmpty (MediaType, ResourceFn rq rb () m (Result (ResponseBody rb))))

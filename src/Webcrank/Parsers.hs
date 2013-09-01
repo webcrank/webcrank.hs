@@ -14,8 +14,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.CaseInsensitive (CI)
 import qualified Data.CaseInsensitive as CI
-import Data.List (sortBy)
-import Data.Ord (comparing)
+import Data.List (find, sortBy)
 
 import Webcrank.Types.MediaType
 
@@ -24,23 +23,24 @@ import Webcrank.Types.MediaType
 -- highest-priority requested type.
 parseAcceptHeader :: ByteString -> [MediaType]
 parseAcceptHeader = order . parse where
-  order = (snd <$>) . sortq . (prioritizeMediaType <$>) 
-  sortq = sortBy (comparing (Down . fst))
+  order = (fst <$>) . sortq . (prioritizeMediaType <$>) 
+  sortq = sortBy ord where
+    ord (MediaType prix subx _, qx) (MediaType priy suby _, qy) 
+      | qx > qy = GT
+      | qx < qy = LT
+      | prix == priy && suby == "*" = GT
+      | prix == priy && subx == "*" = LT
+      | otherwise = EQ
   parse = either (const []) id . parseOnly acceptHeaderP
   acceptHeaderP = mediaTypeP `sepBy1` comma
 
-prioritizeMediaType :: MediaType -> (Double, MediaType)
-prioritizeMediaType (MediaType pri sub ps) = prioritize ps [] where
-  prioritize [] ps' = (1, MediaType pri sub ps')
-  prioritize (p@(k, v) : ps') ps'' | k == "q"  = (parseQ v, MediaType pri sub (ps' ++ ps''))
-                                   | otherwise = prioritize ps' (p : ps'')
+prioritizeMediaType :: MediaType -> (MediaType, Double)
+prioritizeMediaType (MediaType pri sub ps) = (mt, q) where
+  mt = MediaType pri sub (filter (not . isQ) ps)
+  q = maybe 1.0 (parseQ . snd) (find isQ ps)
+  isQ = (== "q") . fst
   parseQ "1" = 1
   parseQ v = either (const 1) id (parseOnly double v)
-
-newtype Down a = Down a deriving (Eq)
-
-instance Ord a => Ord (Down a) where
-  compare (Down x) (Down y) = y `compare` x
 
 parseMediaType :: ByteString -> Maybe MediaType
 parseMediaType = either (const Nothing) Just . parseOnly mediaTypeP

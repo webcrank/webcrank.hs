@@ -7,7 +7,7 @@ module TestData where
 import Control.Applicative ((<$>))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
-import Data.ByteString.Lazy.Builder (byteString, toLazyByteString)
+import Data.ByteString.Lazy.Builder (toLazyByteString)
 import Data.Foldable (find)
 import Data.List.NonEmpty (NonEmpty(..))
 import Network.HTTP.Types

@@ -51,17 +51,18 @@ library
   other-modules:
                     Webcrank.Types.Internal
 
-test-suite hunit
+test-suite tests
   type:             exitcode-stdio-1.0
-  main-is:          hunit.hs
+  main-is:          tests.hs
   hs-source-dirs:   test
   build-depends:    base
                   , bytestring
+                  , case-insensitive
                   , http-types
                   , HUnit
                   , mtl
                   , semigroups
                   , tasty
                   , tasty-hunit
+                  , tasty-quickcheck
                   , webcrank
-

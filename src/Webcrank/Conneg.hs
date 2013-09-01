@@ -1,13 +1,46 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Webcrank.Conneg 
-  ( chooseMediaType
+  ( chooseCharset
+  , chooseMediaType
   ) where
 
-import Control.Applicative ((<|>))
-import Data.List (sort)
+import Control.Applicative ((<$>), (<|>))
+import Data.ByteString (ByteString)
+import Data.CaseInsensitive (CI)
+import Data.List (find, sort)
 import Data.Maybe (listToMaybe)
+import Webcrank.Parsers
 import Webcrank.Types.MediaType
+import Webcrank.Types.Resource
 
+chooseCharset :: [Charset] -> ByteString -> Maybe Charset
+chooseCharset = chooseConneg "ISO-8859-1"
+
+chooseConneg :: CI ByteString -> [CI ByteString] -> ByteString -> Maybe (CI ByteString)
+chooseConneg def choices acc = chooseConneg' def defOk anyOk choices accepted where
+  accepted = parseConnegHeader acc
+  defPrio  = fst <$> find ((def ==) . snd) accepted
+  starPrio = fst <$> find (("*" ==) . snd) accepted
+  defOk = maybe (starPrio /= Just 0.0) (/= 0.0) defPrio
+  anyOk = maybe False (/= 0.0) starPrio
+
+chooseConneg' :: CI ByteString             -- default
+              -> Bool                      -- default ok
+              -> Bool                      -- any ok
+              -> [CI ByteString]           -- choices
+              -> [(Double, CI ByteString)] -- accepted
+              -> Maybe (CI ByteString)
+chooseConneg' _ _ _ [] _ = Nothing
+chooseConneg' _ _ True choices [] = listToMaybe choices
+chooseConneg' def True False choices [] = find (== def) choices
+chooseConneg' _ False False _ [] = Nothing
+chooseConneg' def defOk anyOk choices ((0.0, acc) : rest) = loop where
+  choices' = filter (/= acc) choices
+  loop = chooseConneg' def defOk anyOk choices' rest
+chooseConneg' def defOk anyOk choices ((_, acc) : rest) = match <|> loop where
+  match = find (== acc) choices
+  loop = chooseConneg' def defOk anyOk choices rest
+ 
 -- Determine the @Content-Type@ we will serve for a request.
 -- If there is no acceptable/available match, returns @Nothing@.
 chooseMediaType :: [MediaType] -- a list of media types the resource can provide.
