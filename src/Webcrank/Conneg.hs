@@ -19,8 +19,8 @@ chooseCharset = chooseConneg "ISO-8859-1"
 chooseConneg :: CI ByteString -> [CI ByteString] -> ByteString -> Maybe (CI ByteString)
 chooseConneg def choices acc = chooseConneg' def defOk anyOk choices accepted where
   accepted = parseConnegHeader acc
-  defPrio  = fst <$> find ((def ==) . snd) accepted
-  starPrio = fst <$> find (("*" ==) . snd) accepted
+  defPrio  = snd <$> find ((def ==) . fst) accepted
+  starPrio = snd <$> find (("*" ==) . fst) accepted
   defOk = maybe (starPrio /= Just 0.0) (/= 0.0) defPrio
   anyOk = maybe False (/= 0.0) starPrio
 
@@ -28,16 +28,16 @@ chooseConneg' :: CI ByteString             -- default
               -> Bool                      -- default ok
               -> Bool                      -- any ok
               -> [CI ByteString]           -- choices
-              -> [(Double, CI ByteString)] -- accepted
+              -> [(CI ByteString, Double)] -- accepted
               -> Maybe (CI ByteString)
 chooseConneg' _ _ _ [] _ = Nothing
 chooseConneg' _ _ True choices [] = listToMaybe choices
 chooseConneg' def True False choices [] = find (== def) choices
 chooseConneg' _ False False _ [] = Nothing
-chooseConneg' def defOk anyOk choices ((0.0, acc) : rest) = loop where
+chooseConneg' def defOk anyOk choices ((acc, 0.0) : rest) = loop where
   choices' = filter (/= acc) choices
   loop = chooseConneg' def defOk anyOk choices' rest
-chooseConneg' def defOk anyOk choices ((_, acc) : rest) = match <|> loop where
+chooseConneg' def defOk anyOk choices ((acc, _) : rest) = match <|> loop where
   match = find (== acc) choices
   loop = chooseConneg' def defOk anyOk choices rest
  
@@ -54,10 +54,11 @@ chooseMediaType provided (h:t) = match <|> loop where
 mediaMatch :: MediaType -> [MediaType] -> Maybe MediaType
 mediaMatch _ [] = Nothing
 mediaMatch (MediaType "*" "*" []) (h:_) = Just h
-mediaMatch (MediaType pri sub ps) provided = listToMaybe [ m' | m' <- provided, match m' ] where
+mediaMatch (MediaType pri sub ps) provided = listToMaybe [ m | m <- provided, match m ] where
   match (MediaType pri' sub' ps') = typeMatch pri' sub' && paramsMatch ps'
-  typeMatch _ _       | pri == "*" && sub == "*"   = True
-  typeMatch pri' sub' | pri == pri' && sub == sub' = True
-                      | otherwise                  = sub == "*" && pri == pri'
+  typeMatch pri' sub' 
+    | pri == "*" && sub == "*"   = True
+    | pri == pri' && sub == sub' = True
+    | otherwise                  = pri == pri' && sub == "*"
   paramsMatch ps' = sort ps == sort ps'
 

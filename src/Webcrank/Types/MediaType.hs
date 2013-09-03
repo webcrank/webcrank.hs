@@ -2,7 +2,7 @@
 module Webcrank.Types.MediaType where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B
 import Data.CaseInsensitive (CI)
 import qualified Data.CaseInsensitive as CI
 
@@ -14,7 +14,10 @@ instance Show MediaType where
 
 renderMediaType :: MediaType -> ByteString
 renderMediaType (MediaType pri sub ps) = B.concat [CI.original pri, "/", CI.original sub, params] where
-  params = B.concat [ B.concat [";", CI.original k, "=",  v] | (k, v) <- ps ]
+  params = B.concat [ B.concat [";", CI.original k, "=\"", B.concatMap escape v, "\""] | (k, v) <- ps ]
+  escape '\\' = "\\\\"
+  escape '"' = "\\\""
+  escape c = B.singleton c
 
 textHtml :: MediaType
 textHtml = MediaType "text" "html" []

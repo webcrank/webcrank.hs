@@ -34,7 +34,7 @@ library
                   , transformers                    >= 0.2     && < 0.4
 
   ghc-options:
-                    -Werror -Wall -fno-warn-orphans
+                    -Wall -fno-warn-orphans
 
   hs-source-dirs:
                     src

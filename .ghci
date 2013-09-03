@@ -1,5 +1,6 @@
 :set -isrc -idist/build/autogen
-:set -Wall -Werror
+:set -Wall
+:set -XOverloadedStrings
 :l Webcrank
 :m + Webcrank
 :set prompt ">> "

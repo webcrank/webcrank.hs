@@ -1,20 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Webcrank.Parsers
-  ( parseAcceptHeader
-  , parseMediaType
-  , parseConnegHeader 
-  , parseEtags
-  ) where
+--   ( parseAcceptHeader
+--   , parseMediaType
+--   , parseConnegHeader 
+--   , parseEtags
+--   ) where
+  where
 
-import Control.Applicative (Applicative, (<|>), (<$>), (<*>), (<*), (*>), many)
+import Control.Applicative (Applicative, (<|>), (<$>), (<*>), (<*), (*>), many, (<$))
 import Control.Arrow (first)
-import Data.Attoparsec.ByteString.Char8 (Parser, parseOnly, sepBy, sepBy1, takeWhile1, char, (.*>), option, double, skipSpace, scan)
+import Data.Attoparsec.ByteString.Char8 (Parser, parseOnly, sepBy, sepBy1, takeWhile1, char, (.*>), option, double, skipSpace, anyChar)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.CaseInsensitive (CI)
 import qualified Data.CaseInsensitive as CI
 import Data.List (find, sortBy)
+import Data.Monoid ((<>))
 
 import Webcrank.Types.MediaType
 
@@ -47,24 +49,24 @@ parseMediaType = either (const Nothing) Just . parseOnly mediaTypeP
 
 mediaTypeP :: Parser MediaType
 mediaTypeP = do
+  let mediaRange = skipSpace *> (wildcard <|> wildSub <|> mtype) <* skipSpace
+      wildcard  = char '*' >> slash >> char '*' >> return ("*", "*")
+      wildSub   = (\p -> (p, "*")) <$> token <* (slash >> char '*')
+      mtype     = (,) <$> token <*> (slash *> token)
+      param     = (,) <$> token <*> (equal *> paramVal)
+      paramVal  = quotedString <|> token
   (pri, sub) <- mediaRange
   ps         <- many (semicolon >> param)
   return $ MediaType (CI.mk pri) (CI.mk sub) (first CI.mk <$> ps)
-  where mediaRange = skipSpace *> (wildcard <|> wildSub <|> mtype) <* skipSpace
-        wildcard  = char '*' >> slash >> char '*' >> return ("*", "*")
-        wildSub   = (\p -> (p, "*")) <$> token <* (slash >> char '*')
-        mtype     = (,) <$> token <*> (slash *> token)
-        param     = (,) <$> token <*> (equal *> paramVal)
-        paramVal  = token <|> quotedString
 
-parseConnegHeader :: ByteString -> [(Double, CI ByteString)]
+parseConnegHeader :: ByteString -> [(CI ByteString, Double)]
 parseConnegHeader = either (const []) id . parseOnly connegHeader where
   connegHeader = connegChoice `sepBy1` comma
   connegChoice = do
     accept <- token
     skipSpace
     q      <- option 1.0 (";" .*> ("q" .*> ("=" .*> double)))
-    return (q, CI.mk accept)
+    return (CI.mk accept, q)
 
 parseEtags :: ByteString -> [ByteString]
 parseEtags = either (const []) id . parseOnly etags where
@@ -76,23 +78,12 @@ token = takeWhile1 (`notElem` cs) where
   cs = ['\0'..'\31'] ++ "()<>@,;:\\\"/[]?={} \t" ++ ['\128'..'\255']
 
 quotedString :: Parser ByteString
-quotedString = do
-  _ <- char '"' 
-  let scnr True _ = Just False
-      scnr _  '"' = Nothing
-      scnr _ c    = Just $ c == '\\'
-  s <- scan False scnr
-  _ <- char '"'
-  return (if '\\' `B.elem` s then unescape s else s)
-
--- TODO improve efficiency with blaze builder?
-unescape :: ByteString -> ByteString
-unescape = B.concat . go
-  where go s  = case B.elemIndex '\\' s of
-                  Nothing -> [s]
-                  Just i  -> B.take i s : go' (B.drop (i+1) s)
-        go' s = B.take 1 s : go (B.tail s)
-
+quotedString = char '"' *> go where
+  go = escaped <|> end <|> taking
+  escaped = B.cons <$> (char '\\' >> anyChar) <*> go
+  end = B.empty <$ char '"' 
+  taking = (<>) <$> takeWhile1 (`notElem` "\\\"") <*> go
+    
 comma :: Parser ()
 comma = skipSpace >> char ',' >> skipSpace
 
