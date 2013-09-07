@@ -14,7 +14,10 @@ instance Show MediaType where
 
 renderMediaType :: MediaType -> ByteString
 renderMediaType (MediaType pri sub ps) = B.concat [CI.original pri, "/", CI.original sub, params] where
-  params = B.concat [ B.concat [";", CI.original k, "=\"", B.concatMap escape v, "\""] | (k, v) <- ps ]
+  params = B.concat [ B.concat [";", CI.original k, "=", renderQuotedString v] | (k, v) <- ps ]
+
+renderQuotedString :: ByteString -> ByteString
+renderQuotedString s = B.concat [ "\"", B.concatMap escape s, "\"" ] where
   escape '\\' = "\\\\"
   escape '"' = "\\\""
   escape c = B.singleton c
