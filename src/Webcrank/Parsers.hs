@@ -1,98 +1,149 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Webcrank.Parsers
---   ( parseAcceptHeader
---   , parseMediaType
---   , parseConnegHeader 
---   , parseEtags
---   ) where
+  -- ( parseAcceptHeader
+  -- , parseMediaType
+  -- , parseConnegHeader 
+  -- , parseEtags
+  -- ) where
   where
 
-import Control.Applicative (Applicative, (<|>), (<$>), (<*>), (<*), (*>), many, (<$))
-import Control.Arrow (first)
-import Data.Attoparsec.ByteString.Char8 (Parser, parseOnly, sepBy, sepBy1, takeWhile1, char, (.*>), option, double, skipSpace, anyChar)
+import Control.Applicative 
+import Data.Attoparsec.ByteString.Char8
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
-import Data.CaseInsensitive (CI)
 import qualified Data.CaseInsensitive as CI
-import Data.List (find, sortBy)
-import Data.Monoid ((<>))
+import Data.Char (ord)
+import Data.List (sortBy)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
+import Prelude hiding (takeWhile)
 
+import Webcrank.Types.Internal
 import Webcrank.Types.MediaType
 
 -- | Given the value of an @Accept@ header, produce an ordered list
 -- based on the q-values, with the head of the list being the 
 -- highest-priority requested type.
-parseAcceptHeader :: ByteString -> [MediaType]
-parseAcceptHeader = order . parse where
-  order = (fst <$>) . sortq . (prioritizeMediaType <$>) 
-  sortq = sortBy ord where
-    ord (MediaType prix subx _, qx) (MediaType priy suby _, qy) 
+parseAccept :: ByteString -> [MediaType]
+parseAccept = sort . parseH where
+  sort = (fst <$>) . sort'
+  sort' = sortBy order where
+    order (MediaType prix subx _, qx) (MediaType priy suby _, qy) 
       | qx > qy = GT
       | qx < qy = LT
       | prix == priy && suby == "*" = GT
       | prix == priy && subx == "*" = LT
       | otherwise = EQ
-  parse = either (const []) id . parseOnly acceptHeaderP
-  acceptHeaderP = mediaTypeP `sepBy1` comma
+  parseH = either (const []) id . parseOnly (csl mediaTypeP)
 
-prioritizeMediaType :: MediaType -> (MediaType, Double)
-prioritizeMediaType (MediaType pri sub ps) = (mt, q) where
-  mt = MediaType pri sub (filter (not . isQ) ps)
-  q = maybe 1.0 (parseQ . snd) (find isQ ps)
-  isQ = (== "q") . fst
-  parseQ "1" = 1
-  parseQ v = either (const 1) id (parseOnly double v)
-
-parseMediaType :: ByteString -> Maybe MediaType
+parseMediaType :: ByteString -> Maybe (MediaType, Double)
 parseMediaType = either (const Nothing) Just . parseOnly mediaTypeP
 
-mediaTypeP :: Parser MediaType
-mediaTypeP = do
-  let mediaRange = skipSpace *> (wildcard <|> wildSub <|> mtype) <* skipSpace
-      wildcard  = char '*' >> slash >> char '*' >> return ("*", "*")
-      wildSub   = (\p -> (p, "*")) <$> token <* (slash >> char '*')
-      mtype     = (,) <$> token <*> (slash *> token)
-      param     = (,) <$> token <*> (equal *> paramVal)
-      paramVal  = quotedString <|> token
-  (pri, sub) <- mediaRange
-  ps         <- many (semicolon >> param)
-  return $ MediaType (CI.mk pri) (CI.mk sub) (first CI.mk <$> ps)
+mediaTypeP :: Parser (MediaType, Double)
+mediaTypeP = mk <$> mediaRange <*> params <?> "media-type" where
+  mediaRange = wildcard <|> wildSub <|> mtype <?> "media-range"
+  wildcard = string "*/*" *> pure ("*", "*")
+  wildSub = flip (,) "*" <$> tokenP <* string "/*"
+  mtype = (,) <$> tokenP <*> (char '/' *> tokenP)
+  params = split <$> many param
+  param = (,) . CI.mk <$> (owsP *> char ';' *> owsP *> tokenP) <*> (char '=' *> wordP)
+  split ps = (ps', qval) where
+    (ps', ext) = break ((== "q") . fst) ps
+    qval = listToMaybe ext >>= parseQ . snd
+    parseQ = either (const Nothing) Just . parseOnly double
+  mk (pri, sub) (ps, q) = (MediaType (CI.mk pri) (CI.mk sub) ps, fromMaybe 1.0 q)
 
-parseConnegHeader :: ByteString -> [(CI ByteString, Double)]
-parseConnegHeader = either (const []) id . parseOnly connegHeader where
-  connegHeader = connegChoice `sepBy1` comma
-  connegChoice = do
-    accept <- token
-    skipSpace
-    q      <- option 1.0 (";" .*> ("q" .*> ("=" .*> double)))
-    return (CI.mk accept, q)
+parseAcceptLang :: ByteString -> [(Charset, Double)]
+parseAcceptLang = either (const []) id . parseOnly (csl charsetP) where
+  charsetP = (,) <$> cp <*> wp
+  cp = CI.mk <$> tokenP
+  wp = fromMaybe 1.0 <$> optional weightP
 
-parseEtags :: ByteString -> [ByteString]
-parseEtags = either (const []) id . parseOnly etags where
-  etags = etag `sepBy` comma
-  etag = "W/" .*> quotedString <|> quotedString
+alpha :: String
+alpha = ['a'..'z'] ++ ['A'..'Z']
 
-token :: Parser ByteString
-token = takeWhile1 (`notElem` cs) where
-  cs = ['\0'..'\31'] ++ "()<>@,;:\\\"/[]?={} \t" ++ ['\128'..'\255']
+cr :: Char
+cr = '\r'
 
-quotedString :: Parser ByteString
-quotedString = char '"' *> go where
-  go = escaped <|> end <|> taking
-  escaped = B.cons <$> (char '\\' >> anyChar) <*> go
-  end = B.empty <$ char '"' 
-  taking = (<>) <$> takeWhile1 (`notElem` "\\\"") <*> go
-    
-comma :: Parser ()
-comma = skipSpace >> char ',' >> skipSpace
+crlf :: String
+crlf = [cr, lf]
 
-slash :: Parser ()
-slash = skipSpace >> char '/' >> skipSpace
+ctl :: String
+ctl = '\127' : ['\0' .. '\31']
 
-semicolon :: Parser ()
-semicolon = skipSpace >> char ';' >> skipSpace
+dquote :: Char
+dquote = '"'
 
-equal :: Parser ()
-equal = skipSpace >> char '=' >> skipSpace
+hexdig :: String
+hexdig = ['0'..'9'] ++ ['A'..'F'] ++ ['a'..'f']
 
+htab :: Char
+htab = '\t'
+
+lf :: Char
+lf = '\n'
+
+sp :: Char
+sp = ' '
+
+-- stick the hyphen at the front so we can use inClass without a range
+vchar :: String
+vchar = '-' : [x | x <- ['\32'..'\126'], x /= '-']
+
+-- | Optional whitespace parser
+owsP :: Parser ()
+owsP = skipWhile (inClass [sp, htab]) <?> "OWS"
+
+-- | Required whitespace parser
+rwsP :: Parser ByteString
+rwsP = takeWhile1 (inClass [sp, htab]) <?> "RWS"
+
+wordP :: Parser ByteString
+wordP = tokenP <|> quotedStringP <?> "word"
+
+tokenP :: Parser ByteString
+tokenP = takeWhile1 (inClass tchar) <?> "token"
+
+tchar :: String
+tchar = [x | x <- vchar, x /= sp, x `notElem` special]
+
+special :: String
+special = "()<>@,;:\\\"/[]?={}"
+
+csl :: Parser a -> Parser [a]
+csl p = (catMaybes .) . (:) <$> x <*> ys where
+  x = (const Nothing <$> char ',') <|> (Just <$> p)
+  ys = many (owsP *> char ',' *> optional (owsP *> p))
+
+quotedStringP :: Parser ByteString
+quotedStringP = dquoteP *> str <* dquoteP <?> "quoted-string" where
+  str = B.concat <$> many (qdtextP <|> quotedPairP)
+  qdtextP = takeWhile1 (inClass qdtext) <?> "qdtext"
+  quotedPairP = char '\\' *> qc <?> "quoted-pair" where
+    qc = B.singleton <$> satisfy (inClass (vchar ++ [htab, sp] ++ obsText)) 
+
+qdtext :: String
+qdtext = concat 
+  [ ['-', htab, sp, '!' ]
+  , [x | x <- ['\x23'..'\x7E'], x /= '\\', x/= '-'] -- hyphen should only appear at beginning
+  , obsText
+  ]
+
+obsText :: String
+obsText = ['\x80'..'\xFF']
+
+dquoteP :: Parser Char
+dquoteP = char dquote
+
+weightP :: Parser Double
+weightP = owsP *> char ';' *> owsP *> string "q=" *> qvalP
+
+qvalP :: Parser Double
+qvalP = v <|> one where
+  v = zero *> (fromMaybe 0 <$> optional (dot *> dec))
+  dec = (\x y z -> fromIntegral (x + y + z) / 1000.0) <$> d 100 <*> d 10 <*> d 1
+  one = char '1' *> optional (dot *> optional zero *> optional zero *> optional zero) *> pure 1
+  zero = char '0'
+  dot = char '.'
+  toInt = subtract 48 . ord
+  d x = maybe 0 ((*x) . toInt) <$> optional digit

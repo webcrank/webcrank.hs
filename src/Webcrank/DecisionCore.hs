@@ -185,7 +185,7 @@ decision V3C4 = do
   ctypes <- callr' contentTypesProvided
   accept <- call $ getRqHeader hAccept
   let mtypes = fst <$> NEL.toList ctypes
-      choice = accept >>= chooseMediaType mtypes . parseAcceptHeader
+      choice = accept >>= chooseMediaType mtypes . parseAccept
   maybe (responds notAcceptable406) v3d4 choice
 
 -- Accept-Language exists?
@@ -205,7 +205,7 @@ decision _ = Prelude.error "step not implemented"
 chooseProvidedCharset :: Monad m => ByteString -> ResFn rq rb s m (Maybe Charset)
 chooseProvidedCharset acc = choose <$> callr' charsetsProvided where
   choose NoCharset = Nothing
-  choose (CharsetsProvided cs) = chooseCharset (fst <$> NEL.toList cs) acc
+  choose (CharsetsProvided cs) = chooseCharset (fst <$> NEL.toList cs) (parseAcceptLang acc)
 
 defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
 defaultErrorRenderer (s, e) = liftM Just (render s) where

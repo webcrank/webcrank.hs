@@ -56,12 +56,16 @@ test-suite tests
   main-is:          tests.hs
   hs-source-dirs:   test
   build-depends:    base
+                  , attoparsec                      == 0.10.*
                   , bytestring
                   , case-insensitive
                   , http-types
                   , mtl
                   , semigroups
+                  , QuickCheck
                   , tasty            >= 0.3
                   , tasty-hunit      >= 0.2
                   , tasty-quickcheck >= 0.3
+                  , text                            >= 0.11
+                  , transformers                    >= 0.2     && < 0.4
                   , webcrank

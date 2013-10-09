@@ -9,36 +9,33 @@ import Data.ByteString (ByteString)
 import Data.CaseInsensitive (CI)
 import Data.List (find, sort)
 import Data.Maybe (listToMaybe)
-import Webcrank.Parsers
 import Webcrank.Types.MediaType
 import Webcrank.Types.Resource
 
-chooseCharset :: [Charset] -> ByteString -> Maybe Charset
+chooseCharset :: [Charset] -> [(Charset, Double)] -> Maybe Charset
 chooseCharset = chooseConneg "ISO-8859-1"
 
-chooseConneg :: CI ByteString -> [CI ByteString] -> ByteString -> Maybe (CI ByteString)
-chooseConneg def choices acc = chooseConneg' def defOk anyOk choices accepted where
-  accepted = parseConnegHeader acc
-  defPrio  = snd <$> find ((def ==) . fst) accepted
-  starPrio = snd <$> find (("*" ==) . fst) accepted
-  defOk = maybe (starPrio /= Just 0.0) (/= 0.0) defPrio
-  anyOk = maybe False (/= 0.0) starPrio
+chooseConneg :: CI ByteString -> [CI ByteString] -> [(CI ByteString, Double)] -> Maybe (CI ByteString)
+chooseConneg def choices range = chooseConneg' def defOk anyOk choices range where
+  priority s = snd <$> find ((s ==) . fst) range
+  anyOk = maybe False (/= 0.0) (priority "*")
+  defOk = maybe anyOk (/= 0.0) (priority def)
 
 chooseConneg' :: CI ByteString             -- default
               -> Bool                      -- default ok
               -> Bool                      -- any ok
               -> [CI ByteString]           -- choices
-              -> [(CI ByteString, Double)] -- accepted
+              -> [(CI ByteString, Double)] -- range
               -> Maybe (CI ByteString)
 chooseConneg' _ _ _ [] _ = Nothing
 chooseConneg' _ _ True choices [] = listToMaybe choices
 chooseConneg' def True False choices [] = find (== def) choices
 chooseConneg' _ False False _ [] = Nothing
-chooseConneg' def defOk anyOk choices ((acc, 0.0) : rest) = loop where
-  choices' = filter (/= acc) choices
+chooseConneg' def defOk anyOk choices ((h, 0.0) : rest) = loop where
+  choices' = filter (/= h) choices
   loop = chooseConneg' def defOk anyOk choices' rest
-chooseConneg' def defOk anyOk choices ((acc, _) : rest) = match <|> loop where
-  match = find (== acc) choices
+chooseConneg' def defOk anyOk choices ((h, _) : rest) = match <|> loop where
+  match = find (== h) choices
   loop = chooseConneg' def defOk anyOk choices rest
  
 -- Determine the @Content-Type@ we will serve for a request.
