@@ -12,7 +12,7 @@ import Control.Monad.State (evalStateT)
 import Control.Monad.Trans.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import Data.ByteString.Lazy.Builder (byteString, charUtf8)
+import Data.ByteString.Lazy.Builder (Builder, byteString, charUtf8)
 import Data.ByteString.Lazy.Builder.ASCII (intDec)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid
@@ -27,7 +27,7 @@ import Webcrank.Types.Resource
 data Step = V3B3 | V3C3
           | V3B4 | V3C4 | V3D4
           | V3B5        | V3D5 | V3E5
-          | V3B6               | V3E6 | V3F6
+          | V3B6               | V3E6 ByteString | V3F6
           | V3B7
           | V3B8
           | V3B9
@@ -64,21 +64,27 @@ instance MonadTrans (ResFn rq rb s) where
 runResource :: (Monad m, HasRequestInfo rq) => Resource rq rb m s -> rq -> m (Response rb)
 runResource r rq = runInit (rqInit r) >>= go where
   go s = runFn (decision V3B13) (initRqData rq s)
-  runFn f = evalStateT (unResourceFn (runReaderT (unResFn f) r >>= runFn'))
-  runFn' (Value resp) = return resp
-  runFn' (Error e) = do
-    b <- renderError internalServerError500 (Just e)
-    hdrs <- getRespHeaders
-    return (internalServerError500, hdrs, b)
-  -- TODO handle 304 (remove content-type header, generate Etag, expires headers)
-  runFn' (Halt s) = do
-    b <- if statusCode s >= 400 && statusCode s < 600 
-           then renderError s Nothing
-           else getRespBody
-    hdrs <- getRespHeaders
-    return (s, hdrs, b)
-  renderError s e = getRespBody >>= maybe renderErrorBody (return . Just) where
-    renderErrorBody = getErrorRenderer >>= ($ (s, e))
+  runFn = evalStateT . unResourceFn . (resultToResp =<<) . runResFn r
+
+runResFn :: Resource rq rb m s -> ResFn rq rb s m a -> ResourceFn rq rb s m (Result a)
+runResFn = flip (runReaderT . unResFn)
+
+resultToResp :: Monad m => Result (Response rb) -> ResourceFn rq rb s m (Response rb)
+resultToResp (Value resp) = return resp
+resultToResp (Error e) = errorResponse internalServerError500 e
+resultToResp (Halt s) = mkResp s Nothing
+
+errorResponse :: Monad m => Status -> Builder -> ResourceFn rq rb s m (Response rb)
+errorResponse s e = mkResp s (Just e)
+
+-- TODO handle 304 (remove content-type header, generate Etag, expires headers)
+mkResp :: Monad m => Status -> Maybe Builder -> ResourceFn rq rb s m (Response rb)
+mkResp s e = do
+  b <- getRespBody >>= \b -> case b of
+    Nothing | statusCode s >= 400 && statusCode s < 600 -> getErrorRenderer >>= ($ (s, e))
+    _ -> return b
+  hdrs <- getRespHeaders
+  return (s, hdrs, b)
 
 -- TODO tracing
 step :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
@@ -86,6 +92,9 @@ step = decision
 
 v3d4 :: (Monad m, HasRequestInfo rq) => MediaType -> ResFn rq rb s m (Response rb)
 v3d4 = (>> step V3D4) . call . putRespMediaType
+
+v3f6 :: (Monad m, HasRequestInfo rq) => Maybe Charset -> ResFn rq rb s m (Response rb)
+v3f6 = (>> step V3F6) . call . putRespCharset
 
 test :: Monad m => ResFn rq rb s m a        -- function to test
                 -> (a -> Bool)              -- test function
@@ -110,13 +119,8 @@ callr' = ResFn . liftM return . ReaderT
 call :: Monad m => ResourceFn rq rb s m a -> ResFn rq rb s m a
 call = ResFn . lift . liftM return
 
-responds :: Monad m => Status -> ResFn rq rb s m a
-responds = ResFn . return . Halt
-
-respond :: Monad m => Status -> ResponseHeaders -> ResFn rq rb s m a
-respond s hs = do 
-  call $ putRespHeaders hs
-  ResFn $ return $ Halt s
+respond :: Monad m => Status -> ResFn rq rb s m a
+respond = ResFn . return . Halt
 
 -- TODO make it part of the config or part of the resource?
 knownMethods :: [Method]
@@ -125,14 +129,14 @@ knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, meth
 decision :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
 
 -- Service Available
-decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (responds serviceUnavailable503)
+decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (respond serviceUnavailable503)
 
 -- Known method?
-decision V3B12 = test (call getRqMethod) known (step V3B11) (responds notImplemented501) where 
+decision V3B12 = test (call getRqMethod) known (step V3B11) (respond notImplemented501) where 
   known m = m `elem` knownMethods
 
 -- URI too long?
-decision V3B11 = testEq (callr uriTooLong) True (responds requestURITooLong414) (step V3B10) 
+decision V3B11 = testEq (callr uriTooLong) True (respond requestURITooLong414) (step V3B10) 
 
 -- Method allowed?
 decision V3B10 = do
@@ -140,36 +144,39 @@ decision V3B10 = do
   m  <- call getRqMethod
   if m `elem` ms
     then step V3B9
-    else call (putRespHeader "Allow" (allowHeader ms)) >> responds methodNotAllowed405
+    else call (putRespHeader "Allow" (allowHeader ms)) >> respond methodNotAllowed405
   where allowHeader = B.intercalate ", "
 
 -- Malformed?
-decision V3B9 = testEq (callr malformedRequest) True (responds badRequest400) (step V3B8)
+decision V3B9 = testEq (callr malformedRequest) True (respond badRequest400) (step V3B8)
 
 -- Authorized?
 decision V3B8 = do
   authz <- callr isAuthorized
   case authz of
     Authorized -> step V3B7
-    (Unauthorized h) -> call (putRespHeader "WWW-Authenticate" h) >> responds unauthorized401
+    (Unauthorized h) -> call (putRespHeader "WWW-Authenticate" h) >> respond unauthorized401
 
 -- Forbidden?
-decision V3B7 = testEq (callr forbidden) True (responds forbidden403) (step V3B6)
+decision V3B7 = testEq (callr forbidden) True (respond forbidden403) (step V3B6)
 
 -- Okay Content-* Headers?
-decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (responds notImplemented501)
+decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (respond notImplemented501)
 
 -- Known Content-Type?
-decision V3B5 = testEq (callr knownContentType) True (step V3B4) (responds unsupportedMediaType415)
+decision V3B5 = testEq (callr knownContentType) True (step V3B4) (respond unsupportedMediaType415)
 
 -- Req Entity Too Large?
-decision V3B4 = testEq (callr validEntityLength) True (step V3B3) (responds requestEntityTooLarge413)
+decision V3B4 = testEq (callr validEntityLength) True (step V3B3) (respond requestEntityTooLarge413)
 
 -- OPTIONS?
 decision V3B3 = do
   m <- call getRqMethod
   if m == methodOptions
-    then callr' options >>= respond ok200
+    then do 
+      hs <- callr' options 
+      call (putRespHeaders hs)
+      respond ok200
     else step V3C3
 
 -- Accept exists?
@@ -186,19 +193,22 @@ decision V3C4 = do
   accept <- call $ getRqHeader hAccept
   let mtypes = fst <$> NEL.toList ctypes
       choice = accept >>= chooseMediaType mtypes . parseAccept
-  maybe (responds notAcceptable406) v3d4 choice
+  maybe (call $ errorResponse notAcceptable406 (byteString "No acceptable media type available")) v3d4 choice
 
 -- Accept-Language exists?
 decision V3D4 = test (call $ getRqHeader hAcceptLanguage) isNothing (step V3E5) (step V3D5)
 
 -- Acceptable Language available?
 -- TODO implement proper conneg
-decision V3D5 = testEq (return True) True (step V3E5) (responds notAcceptable406)
+decision V3D5 = testEq (return True) True (step V3E5) (respond notAcceptable406)
 
 -- Accept-Charset exists?
 decision V3E5 = call (getRqHeader "Accept-Charset") >>= choose where
-  choose Nothing = chooseProvidedCharset "*" >>= call . putRespCharset >> step V3F6
-  choose _ = step V3E6
+  choose = maybe (chooseProvidedCharset "*" >>= v3f6) (step . V3E6)
+
+-- Acceptable Charset available?
+decision (V3E6 h) = chooseProvidedCharset h >>= next where
+  next = maybe (call $ errorResponse notAcceptable406 (byteString "No acceptable charset available")) (v3f6 . Just)
 
 decision _ = Prelude.error "step not implemented"
 

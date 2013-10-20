@@ -21,7 +21,8 @@ runResourceTests = testGroup "runResource"
   , testCase "unknown Content-Type" testUnknownContentType 
   , testCase "entity too large" testEntityTooLarge
   , testCase "OPTIONS" testOptions 
-  , testCase "not acceptable" testNotAcceptable 
+  , testCase "no acceptable media type" testNoAcceptableMediaType
+  , testCase "no acceptable charset" testNoAcceptableCharset
   ]
 
 (<@=?>) = (=<<) . (@=?)
@@ -93,9 +94,15 @@ testOptions = resp200 <@=?> runResource rs rq where
   rq = testRq { testRqMethod = methodOptions }
   resp200 = testResp ok200 hdrs Nothing
 
-testNotAcceptable = resp406 <@=?> runResource testResource rq where
+testNoAcceptableMediaType = resp406 <@=?> runResource testResource rq where
   rq = testRq { testRqHeaders = [(hAccept, "text/plain")] }
   resp406 = testResp notAcceptable406
                      [(hContentType, "text/html")]
-                     (testBody "<html><head><title>406 Not Acceptable</title></head><body><h1>Not Acceptable</h1>Not Acceptable<p><hr><address>webcrank web server</address></body></html>")
+                     (testBody "<html><head><title>406 Not Acceptable</title></head><body><h1>Not Acceptable</h1>No acceptable media type available<p><hr><address>webcrank web server</address></body></html>")
+
+testNoAcceptableCharset = resp406 <@=?> runResource testResource rq where
+  rq = testRq { testRqHeaders = [("Accept-Charset", "utf-16")] }
+  resp406 = testResp notAcceptable406
+                     [(hContentType, "text/html")]
+                     (testBody "<html><head><title>406 Not Acceptable</title></head><body><h1>Not Acceptable</h1>No acceptable charset available<p><hr><address>webcrank web server</address></body></html>")
 
