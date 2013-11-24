@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Webcrank.Types.Resource
   ( Resource(..)
   , ResourceFn
@@ -6,6 +8,7 @@ module Webcrank.Types.Resource
   , ContentTypesProvided
   , Charset
   , CharsetsProvided(..)
+  , Encoding
   , resource
   , resource'
   , initOk
@@ -84,6 +87,13 @@ data Resource rq rb m s = Resource
 
     -- | Used on GET requests to ensure that the entity is in @Charset@.
   , charsetsProvided :: ResourceFn rq rb s m (CharsetsProvided rb)
+
+    -- | Used on GET requests to ensure that the body is encoded. 
+    -- One useful setting is to have the function check on method, and on GET requests
+    -- return @[("identity", id), ("gzip", compress)]@ as this is all that is needed 
+    -- to support gzip content encoding.
+  , encodingsProvided :: ResourceFn rq rb s m [ (Encoding, rb -> rb) ]
+
   }
 
 -- | Constructs a @Resource@ with the given initializer and defaults for all the other other properties.
@@ -104,6 +114,7 @@ resource i cs = Resource
   , options              = return []
   , contentTypesProvided = cs
   , charsetsProvided     = return NoCharset
+  , encodingsProvided    = return [ ("identity", id) ]
   }
 
 resource' :: Monad m => ResourceFn rq rb () m (NonEmpty (MediaType, ResourceFn rq rb () m (Result (ResponseBody rb))))

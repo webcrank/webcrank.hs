@@ -1,12 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Webcrank.Parsers
-  -- ( parseAcceptHeader
-  -- , parseMediaType
-  -- , parseConnegHeader 
-  -- , parseEtags
-  -- ) where
-  where
+module Webcrank.Parsers where
 
 import Control.Applicative 
 import Data.Attoparsec.ByteString.Char8
@@ -15,7 +9,7 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.CaseInsensitive as CI
 import Data.Char (ord)
 import Data.List (sortBy)
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, maybeToList)
 import Prelude hiding (takeWhile)
 
 import Webcrank.Types.Internal
@@ -53,10 +47,17 @@ mediaTypeP = mk <$> mediaRange <*> params <?> "media-type" where
     parseQ = either (const Nothing) Just . parseOnly double
   mk (pri, sub) (ps, q) = (MediaType (CI.mk pri) (CI.mk sub) ps, fromMaybe 1.0 q)
 
+-- TODO should this return `Maybe (NonEmpty (Charset, Double))`?
 parseAcceptLang :: ByteString -> [(Charset, Double)]
-parseAcceptLang = either (const []) id . parseOnly (csl charsetP) where
+parseAcceptLang = either (const []) id . parseOnly (csl1 charsetP) where
   charsetP = (,) <$> cp <*> wp
   cp = CI.mk <$> tokenP
+  wp = fromMaybe 1.0 <$> optional weightP
+
+parseAcceptEnc :: ByteString -> [(Encoding, Double)]
+parseAcceptEnc = either (const []) id . parseOnly (csl codingsP) where
+  codingsP = (,) <$> cp <*> wp
+  cp = CI.mk <$> (string "identity" <|> tokenP)
   wp = fromMaybe 1.0 <$> optional weightP
 
 alpha :: String
@@ -111,9 +112,13 @@ special :: String
 special = "()<>@,;:\\\"/[]?={}"
 
 csl :: Parser a -> Parser [a]
-csl p = (catMaybes .) . (:) <$> x <*> ys where
-  x = (const Nothing <$> char ',') <|> (Just <$> p)
+csl = (concat . maybeToList <$>) . optional . csl1
+
+csl1 :: Parser a -> Parser [a]
+csl1 p = (catMaybes .) . (:) <$> x <*> ys >>= failOnEmpty where
+  x = optional p
   ys = many (owsP *> char ',' *> optional (owsP *> p))
+  failOnEmpty xs = if null xs then fail "csl1" else pure xs
 
 quotedStringP :: Parser ByteString
 quotedStringP = dquoteP *> str <* dquoteP <?> "quoted-string" where

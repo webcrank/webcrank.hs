@@ -1,8 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Webcrank.Conneg 
-  ( chooseCharset
-  , chooseMediaType
-  ) where
+module Webcrank.Conneg where
 
 import Control.Applicative ((<$>), (<|>))
 import Data.ByteString (ByteString)
@@ -14,6 +11,9 @@ import Webcrank.Types.Resource
 
 chooseCharset :: [Charset] -> [(Charset, Double)] -> Maybe Charset
 chooseCharset = chooseConneg "ISO-8859-1"
+
+chooseEncoding :: [Encoding] -> [(Encoding, Double)]-> Maybe Encoding
+chooseEncoding = chooseConneg "identity"
 
 chooseConneg :: CI ByteString -> [CI ByteString] -> [(CI ByteString, Double)] -> Maybe (CI ByteString)
 chooseConneg def choices range = chooseConneg' def defOk anyOk choices range where

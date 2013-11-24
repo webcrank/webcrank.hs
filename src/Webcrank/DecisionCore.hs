@@ -28,8 +28,8 @@ data Step = V3B3 | V3C3
           | V3B4 | V3C4 | V3D4
           | V3B5        | V3D5 | V3E5
           | V3B6               | V3E6 ByteString | V3F6
-          | V3B7
-          | V3B8
+          | V3B7                                 | V3F7 ByteString | V3G7
+          | V3B8                                                   
           | V3B9
           | V3B10
           | V3B11
@@ -80,8 +80,9 @@ errorResponse s e = mkResp s (Just e)
 -- TODO handle 304 (remove content-type header, generate Etag, expires headers)
 mkResp :: Monad m => Status -> Maybe Builder -> ResourceFn rq rb s m (Response rb)
 mkResp s e = do
+  let sc = statusCode s
   b <- getRespBody >>= \b -> case b of
-    Nothing | statusCode s >= 400 && statusCode s < 600 -> getErrorRenderer >>= ($ (s, e))
+    Nothing | sc >= 400 && sc < 600 -> getErrorRenderer >>= ($ (s, e))
     _ -> return b
   hdrs <- getRespHeaders
   return (s, hdrs, b)
@@ -210,12 +211,33 @@ decision V3E5 = call (getRqHeader "Accept-Charset") >>= choose where
 decision (V3E6 h) = chooseProvidedCharset h >>= next where
   next = maybe (call $ errorResponse notAcceptable406 (byteString "No acceptable charset available")) (v3f6 . Just)
 
-decision _ = Prelude.error "step not implemented"
+-- Accept-Encoding exists?
+-- Note: This is a departure from webmachine and the activity diagram.
+-- Webcrank will NEVER give a "406 Not Acceptable" response if an encoding
+-- cannot be found. According to the httpbis semantics, "If an Accept-Encoding header field is present in a request
+-- and none of the available representations for the response have a
+-- content-coding that is listed as acceptable, the origin server SHOULD
+-- send a response without any content-coding."
+-- http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24#section-5.3.4
+decision V3F6 = call (getRqHeader "Accept-Encoding") >>= next where 
+  next = step . V3F7 . fromMaybe "identity;q=1.0,*;q=0.5"
+
+-- Acceptable encoding available?
+decision (V3F7 acc) = chooseProvidedEncoding acc >>= v3g7 where
+  v3g7 = (>> step V3G7) . call . putRespEncoding
 
 chooseProvidedCharset :: Monad m => ByteString -> ResFn rq rb s m (Maybe Charset)
 chooseProvidedCharset acc = choose <$> callr' charsetsProvided where
   choose NoCharset = Nothing
   choose (CharsetsProvided cs) = chooseCharset (fst <$> NEL.toList cs) (parseAcceptLang acc)
+
+chooseProvidedEncoding :: Monad m => ByteString -> ResFn rq rb s m (Maybe Encoding)
+chooseProvidedEncoding acc = choose <$> callr' encodingsProvided where
+  choose []  = Nothing
+  choose enc = case chooseEncoding (fst <$> enc) (parseAcceptEnc acc) of
+                 Nothing -> Nothing
+                 Just "identity" -> Nothing
+                 menc -> menc
 
 defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
 defaultErrorRenderer (s, e) = liftM Just (render s) where
@@ -252,6 +274,7 @@ initRqData rq s = RqData
   , errorRenderer = defaultErrorRenderer
   , respMediaType = MediaType "application" "octet-stream" []
   , respCharset   = Nothing
+  , respEncoding  = Nothing
   , respHdrs      = []
   , respBody      = Nothing
   }

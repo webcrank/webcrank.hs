@@ -27,6 +27,8 @@ type ErrorRenderer rq rb s m = (Status, Maybe Builder) -> ResourceFn rq rb s m (
 
 type Charset = CI ByteString
 
+type Encoding = CI ByteString
+
 -- TODO adding tracing option
 newtype Init m s = Init { runInit :: m s }
 
@@ -36,6 +38,7 @@ data RqData rq rb s m = RqData
   , errorRenderer :: ErrorRenderer rq rb s m
   , respMediaType  :: MediaType
   , respCharset :: Maybe Charset
+  , respEncoding  :: Maybe Encoding
   , respHdrs :: ResponseHeaders
   , respBody :: Maybe (ResponseBody rb)
   }
@@ -103,6 +106,12 @@ getRespCharset = rgets respCharset
 
 putRespCharset :: Monad m => Maybe Charset -> ResourceFn rq rb s m ()
 putRespCharset c = rmodify (\rd -> rd { respCharset = c })
+
+getRespEncoding :: Monad m => ResourceFn rq rb s m (Maybe Encoding)
+getRespEncoding = rgets respEncoding
+
+putRespEncoding :: Monad m => Maybe Encoding -> ResourceFn rq rb s m ()
+putRespEncoding e = rmodify (\rd -> rd { respEncoding = e })
 
 data Authorized = Authorized | Unauthorized ByteString
 

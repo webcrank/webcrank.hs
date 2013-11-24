@@ -41,14 +41,14 @@ library
 
   exposed-modules:
                     Webcrank
-                    Webcrank.Conneg
                     Webcrank.DecisionCore
-                    Webcrank.Parsers
                     Webcrank.Types
                     Webcrank.Types.MediaType
                     Webcrank.Types.Resource
 
   other-modules:
+                    Webcrank.Conneg
+                    Webcrank.Parsers
                     Webcrank.Types.Internal
 
 test-suite tests
