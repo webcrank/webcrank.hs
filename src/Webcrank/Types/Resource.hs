@@ -92,8 +92,17 @@ data Resource rq rb m s = Resource
     -- One useful setting is to have the function check on method, and on GET requests
     -- return @[("identity", id), ("gzip", compress)]@ as this is all that is needed 
     -- to support gzip content encoding.
-  , encodingsProvided :: ResourceFn rq rb s m [ (Encoding, rb -> rb) ]
+  , encodingsProvided :: ResourceFn rq rb s m [(Encoding, rb -> rb)]
 
+    -- | @False@ will result in @404 Not Found@. Defaults to @True@.
+  , resourceExists :: ResourceFn rq rb s m (Result Bool)
+
+    -- | Headers that should be included in a given response's @Vary@ header.
+    -- The standard conneg headers (@Accept@, @Accept-Encoding@, 
+    -- @Accept-Charset@,  @Accept-Language@) do not need to be specified here
+    -- as Webcrank will add the correct elements of those automatically 
+    -- depending on resource behavior.
+  , variances :: ResourceFn rq rb s m [HeaderName]
   }
 
 -- | Constructs a @Resource@ with the given initializer and defaults for all the other other properties.
@@ -115,6 +124,8 @@ resource i cs = Resource
   , contentTypesProvided = cs
   , charsetsProvided     = return NoCharset
   , encodingsProvided    = return [ ("identity", id) ]
+  , resourceExists       = value True
+  , variances            = return []
   }
 
 resource' :: Monad m => ResourceFn rq rb () m (NonEmpty (MediaType, ResourceFn rq rb () m (Result (ResponseBody rb))))

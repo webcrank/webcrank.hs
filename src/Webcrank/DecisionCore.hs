@@ -14,6 +14,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Lazy.Builder (Builder, byteString, charUtf8)
 import Data.ByteString.Lazy.Builder.ASCII (intDec)
+import qualified Data.CaseInsensitive as CI
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid
 import qualified Data.List.NonEmpty as NEL
@@ -28,8 +29,8 @@ data Step = V3B3 | V3C3
           | V3B4 | V3C4 | V3D4
           | V3B5        | V3D5 | V3E5
           | V3B6               | V3E6 ByteString | V3F6
-          | V3B7                                 | V3F7 ByteString | V3G7
-          | V3B8                                                   
+          | V3B7                                 | V3F7 ByteString | V3G7 | V3H7
+          | V3B8                                                   | V3G8
           | V3B9
           | V3B10
           | V3B11
@@ -212,19 +213,51 @@ decision (V3E6 h) = chooseProvidedCharset h >>= next where
   next = maybe (call $ errorResponse notAcceptable406 (byteString "No acceptable charset available")) (v3f6 . Just)
 
 -- Accept-Encoding exists?
--- Note: This is a departure from webmachine and the activity diagram.
--- Webcrank will NEVER give a "406 Not Acceptable" response if an encoding
--- cannot be found. According to the httpbis semantics, "If an Accept-Encoding header field is present in a request
--- and none of the available representations for the response have a
--- content-coding that is listed as acceptable, the origin server SHOULD
--- send a response without any content-coding."
--- http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24#section-5.3.4
-decision V3F6 = call (getRqHeader "Accept-Encoding") >>= next where 
-  next = step . V3F7 . fromMaybe "identity;q=1.0,*;q=0.5"
+-- also, set content-type header here, now that media type and charset are chosen
+decision V3F6 = setContentType >> call (getRqHeader "Accept-Encoding") >>= next where
+  next = step . maybe V3G7 V3F7
 
 -- Acceptable encoding available?
+-- Note: This is a departure from webmachine and the activity diagram.
+-- Webcrank will NEVER give a "406 Not Acceptable" response if an encoding
+-- cannot be found. According to the httpbis semantics, 
+--
+--   If an Accept-Encoding header field is present in a request and none of
+--   the available representations for the response have a content-coding 
+--   that is listed as acceptable, the origin server SHOULD send a response
+--   without any content-coding.
+--
+-- http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24#section-5.3.4
 decision (V3F7 acc) = chooseProvidedEncoding acc >>= v3g7 where
   v3g7 = (>> step V3G7) . call . putRespEncoding
+
+-- Resource exists?
+-- Set `Vary` header since all conneg is done
+decision V3G7 = setVary >> next where
+  next = testEq (callr resourceExists) True (step V3G8) (step V3H7)
+
+setContentType :: Monad m => ResFn rq rb s m ()
+setContentType = call (ctype >>= putRespHeader hContentType) where
+  ctype = (<>) <$> mtype <*> cset
+  mtype = renderMediaType <$> getRespMediaType
+  cset = maybe "" (("; charset=" <>) . CI.original) <$> getRespCharset
+
+setVary :: Monad m => ResFn rq rb s m ()
+setVary = vars >>= set where
+  set [] = return ()
+  set vs = call (putRespHeader "Vary" $ B.intercalate ", " vs)
+  vars = vary "Accept" contentTypesProvided NEL.toList 
+     <@> vary "Accept-Encoding" encodingsProvided id
+     <@> vary "Accept-Charset" charsetsProvided toCharsetList
+     <@> ((CI.original <$>) <$> callr' variances)
+  vary h f g = vary' . length . g <$> callr' f where
+    vary' l | l < 2     = []
+            | otherwise = [h]
+  toCharsetList NoCharset = []
+  toCharsetList (CharsetsProvided xs) = NEL.toList xs
+
+(<@>) :: (Applicative f, Monoid a) => f a -> f a -> f a
+x <@> y = (<>) <$> x <*> y
 
 chooseProvidedCharset :: Monad m => ByteString -> ResFn rq rb s m (Maybe Charset)
 chooseProvidedCharset acc = choose <$> callr' charsetsProvided where
