@@ -44,6 +44,7 @@ resource initReq = Resource
   , resourceExists = return True
   , generateETag = mzero
   , lastModified = mzero
+  , expires = mzero
   , movedPermanently = mzero
   , movedTemporarily = mzero
   , previouslyExisted = return False

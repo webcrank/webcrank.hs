@@ -25,7 +25,7 @@ data Res = Res
   { resStatus :: Status
   , resHeaders :: Map HeaderName [ByteString]
   , resBody :: LB.ByteString
-  }
+  } deriving (Show, Eq)
 
 req :: Req
 req = Req

@@ -189,6 +189,9 @@ data Resource s m = Resource
     -- ^ If this returns a @HTTPDate@, it will be used for the Last-Modified header
     -- and for comparison in conditional requests.
 
+  , expires :: MaybeT (ReqState' s m) HTTPDate
+    -- ^ If this returns a @HTTPDate@, it will be used for the Expires header.
+
   , movedPermanently :: MaybeT (ReqState s m) ByteString
     -- ^ If this returns a URI, the client will receive a 301 Moved Permanently
     -- with the URI in the Location header.

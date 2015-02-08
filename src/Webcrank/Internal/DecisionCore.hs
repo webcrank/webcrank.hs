@@ -91,7 +91,7 @@ respond s =
 errorResponse :: Monad m => Status -> LB.ByteString -> FlowChart (ReqState s m) a
 errorResponse s = Done . werror s
 
-hAcceptCharset, hAcceptEncoding, hAllow, hIfMatch, hIfNoneMatch, hIfUnmodifiedSince, hWWWAuthenticate :: HeaderName
+hAcceptCharset, hAcceptEncoding, hAllow, hIfMatch, hIfNoneMatch, hIfUnmodifiedSince, hWWWAuthenticate, hETag, hExpires :: HeaderName
 hAcceptCharset = "Accept-Charset"
 hAcceptEncoding = "Accept-Encoding"
 hAllow = "Allow"
@@ -99,6 +99,8 @@ hIfMatch = "If-Match"
 hIfNoneMatch = "If-None-Match"
 hIfUnmodifiedSince = "If-Unmodified-Since"
 hWWWAuthenticate = "WWW-Authenticate"
+hETag = "ETag"
+hExpires = "Expires"
 
 -- Service Available
 b13 :: Monad' m => FlowChart (ReqState s m) Status

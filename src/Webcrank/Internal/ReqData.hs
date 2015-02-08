@@ -6,6 +6,7 @@ module Webcrank.Internal.ReqData where
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text)
@@ -41,11 +42,20 @@ putDispatchPath p = modify $ \rd -> rd { _reqDataDispPath = p }
 getResponseHeader :: MonadState (ReqData s n) m => HeaderName -> m (Maybe ByteString)
 getResponseHeader h = gets ((listToMaybe =<<) . Map.lookup h . _reqDataRespHeaders)
 
+modifyResponseHeaders
+  :: MonadState (ReqData s n) m
+  => (Map HeaderName [ByteString] -> Map HeaderName [ByteString])
+  -> m ()
+modifyResponseHeaders f = modify $ \rd -> rd { _reqDataRespHeaders = f $ _reqDataRespHeaders rd }
+
 putResponseHeader :: MonadState (ReqData s n) m => HeaderName -> ByteString -> m ()
-putResponseHeader h v = modify $ \rd -> rd { _reqDataRespHeaders = Map.insert h [v] (_reqDataRespHeaders rd) }
+putResponseHeader h v = modifyResponseHeaders (Map.insert h [v])
 
 putResponseHeaders :: MonadState (ReqData s n) m => ResponseHeaders -> m ()
 putResponseHeaders = mapM_ (uncurry putResponseHeader)
+
+removeResponseHeader :: MonadState (ReqData s n) m => HeaderName -> m ()
+removeResponseHeader h = modifyResponseHeaders $ Map.delete h
 
 getResponseLocation :: MonadState (ReqData s n) m => m (Maybe ByteString)
 getResponseLocation = getResponseHeader hLocation
