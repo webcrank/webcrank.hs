@@ -17,7 +17,6 @@ import Control.Applicative
 import Control.Monad.Reader
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
-import Data.Bool
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B hiding (drop, take)
 import qualified Data.ByteString.Lazy as LB
@@ -79,6 +78,9 @@ callrm = mapMaybeT (ReqState . lift) . callr
 
 fromMaybeT :: Functor m => a -> MaybeT m a -> m a
 fromMaybeT x = fmap (fromMaybe x) . runMaybeT
+
+bool :: a -> a -> Bool -> a
+bool x y p = if p then y else x
 
 respond :: Monad' m => Status -> FlowChart (ReqState s m) Status
 respond s =
