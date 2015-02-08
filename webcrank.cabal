@@ -24,7 +24,7 @@ flag                small_base
 library
   build-depends:
                     attoparsec                      >= 0.10
-                  , base                            >= 4.6
+                  , base                            >= 4.6 && < 5
                   , blaze-builder
                   , bytestring                      >= 0.10.0
                   , case-insensitive                >= 1.0
@@ -72,7 +72,7 @@ test-suite tests
                   , tasty-quickcheck >= 0.3
 
                   , attoparsec                      >= 0.10
-                  , base                            >= 4.6
+                  , base                            >= 4.6 && < 5
                   , blaze-builder
                   , bytestring                      >= 0.10.0
                   , case-insensitive                >= 1.0
