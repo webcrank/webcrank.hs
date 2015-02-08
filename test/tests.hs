@@ -1,15 +1,14 @@
 import Test.Tasty
 
-import ConnegTests
 import ParserTests
-import ResourceTests
+import DecisionTests
 
+main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Webcrank tests" 
-  [ connegTests
-  , parserTests
-  , runResourceTests
+tests = testGroup "Webcrank tests"
+  [ parserTests
+  , decisionTests
   ]
 

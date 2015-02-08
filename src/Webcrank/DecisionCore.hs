@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Webcrank.DecisionCore 
+module Webcrank.DecisionCore
   ( runResource
   , Response
   ) where
@@ -10,32 +10,16 @@ import Control.Monad
 import Control.Monad.Reader (ReaderT(..))
 import Control.Monad.State (evalStateT)
 import Control.Monad.Trans.Class
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
 import Data.ByteString.Lazy.Builder (Builder, byteString, charUtf8)
 import Data.ByteString.Lazy.Builder.ASCII (intDec)
-import qualified Data.CaseInsensitive as CI
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe)
 import Data.Monoid
-import qualified Data.List.NonEmpty as NEL
 import Network.HTTP.Types
-import Webcrank.Conneg
-import Webcrank.Parsers
 import Webcrank.Types.Internal
 import Webcrank.Types.MediaType
 import Webcrank.Types.Resource
 
-data Step = V3B3 | V3C3
-          | V3B4 | V3C4 | V3D4
-          | V3B5        | V3D5 | V3E5
-          | V3B6               | V3E6 ByteString | V3F6
-          | V3B7                                 | V3F7 ByteString | V3G7 | V3H7
-          | V3B8                                                   | V3G8
-          | V3B9
-          | V3B10
-          | V3B11
-          | V3B12
-          | V3B13
+data Step = V3B13
 
 type Response rb = (Status, ResponseHeaders, Maybe (ResponseBody rb))
 
@@ -88,217 +72,58 @@ mkResp s e = do
   hdrs <- getRespHeaders
   return (s, hdrs, b)
 
--- TODO tracing
-step :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
-step = decision
-
-v3d4 :: (Monad m, HasRequestInfo rq) => MediaType -> ResFn rq rb s m (Response rb)
-v3d4 = (>> step V3D4) . call . putRespMediaType
-
-v3f6 :: (Monad m, HasRequestInfo rq) => Maybe Charset -> ResFn rq rb s m (Response rb)
-v3f6 = (>> step V3F6) . call . putRespCharset
-
-test :: Monad m => ResFn rq rb s m a        -- function to test
-                -> (a -> Bool)              -- test function
-                -> ResFn rq rb s m (Response rb) -- true step
-                -> ResFn rq rb s m (Response rb) -- false step
-                -> ResFn rq rb s m (Response rb)
-test r f x y = r >>= \a -> if f a then x else y
-
-testEq :: (Monad m, Eq a) => ResFn rq rb s m a        -- function to test
-                          -> a                        -- test value
-                          -> ResFn rq rb s m (Response rb) -- true step
-                          -> ResFn rq rb s m (Response rb) -- false step
-                          -> ResFn rq rb s m (Response rb)
-testEq r a x y = r >>= \b -> if a == b then x else y
-
-callr :: (Resource rq rb m s -> ResourceFn rq rb s m (Result a)) -> ResFn rq rb s m a
-callr = ResFn . ReaderT
-
-callr' :: Monad m => (Resource rq rb m s -> ResourceFn rq rb s m a) -> ResFn rq rb s m a
-callr' = ResFn . liftM return . ReaderT 
-
-call :: Monad m => ResourceFn rq rb s m a -> ResFn rq rb s m a
-call = ResFn . lift . liftM return
-
-respond :: Monad m => Status -> ResFn rq rb s m a
-respond = ResFn . return . Halt
-
--- TODO make it part of the config or part of the resource?
-knownMethods :: [Method]
-knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, methodTrace, methodConnect, methodOptions]
 
 decision :: (Monad m, HasRequestInfo rq) => Step -> ResFn rq rb s m (Response rb)
+decision = undefined
 
--- Service Available
-decision V3B13 = testEq (callr serviceAvailable) True (step V3B12) (respond serviceUnavailable503)
+-- setContentType :: Monad m => ResFn rq rb s m ()
+-- setContentType = call (ctype >>= putRespHeader hContentType) where
+--   ctype = (<>) <$> mtype <*> cset
+--   mtype = renderMediaType <$> getRespMediaType
+--   cset = maybe "" (("; charset=" <>) . CI.original) <$> getRespCharset
 
--- Known method?
-decision V3B12 = test (call getRqMethod) known (step V3B11) (respond notImplemented501) where 
-  known m = m `elem` knownMethods
-
--- URI too long?
-decision V3B11 = testEq (callr uriTooLong) True (respond requestURITooLong414) (step V3B10) 
-
--- Method allowed?
-decision V3B10 = do
-  ms <- callr' allowedMethods
-  m  <- call getRqMethod
-  if m `elem` ms
-    then step V3B9
-    else call (putRespHeader "Allow" (allowHeader ms)) >> respond methodNotAllowed405
-  where allowHeader = B.intercalate ", "
-
--- Malformed?
-decision V3B9 = testEq (callr malformedRequest) True (respond badRequest400) (step V3B8)
-
--- Authorized?
-decision V3B8 = do
-  authz <- callr isAuthorized
-  case authz of
-    Authorized -> step V3B7
-    (Unauthorized h) -> call (putRespHeader "WWW-Authenticate" h) >> respond unauthorized401
-
--- Forbidden?
-decision V3B7 = testEq (callr forbidden) True (respond forbidden403) (step V3B6)
-
--- Okay Content-* Headers?
-decision V3B6 = testEq (callr validContentHeaders) True (step V3B5) (respond notImplemented501)
-
--- Known Content-Type?
-decision V3B5 = testEq (callr knownContentType) True (step V3B4) (respond unsupportedMediaType415)
-
--- Req Entity Too Large?
-decision V3B4 = testEq (callr validEntityLength) True (step V3B3) (respond requestEntityTooLarge413)
-
--- OPTIONS?
-decision V3B3 = do
-  m <- call getRqMethod
-  if m == methodOptions
-    then do 
-      hs <- callr' options 
-      call (putRespHeaders hs)
-      respond ok200
-    else step V3C3
-
--- Accept exists?
-decision V3C3 = do
-  accept <- call $ getRqHeader hAccept
-  cs <- callr' contentTypesProvided 
-  let def = v3d4 $ fst $ NEL.head cs
-      v3c4 = const $ step V3C4
-  maybe def v3c4 accept
-
--- Acceptable media type available?
-decision V3C4 = do
-  ctypes <- callr' contentTypesProvided
-  accept <- call $ getRqHeader hAccept
-  let mtypes = fst <$> NEL.toList ctypes
-      choice = accept >>= chooseMediaType mtypes . parseAccept
-  maybe (call $ errorResponse notAcceptable406 (byteString "No acceptable media type available")) v3d4 choice
-
--- Accept-Language exists?
-decision V3D4 = test (call $ getRqHeader hAcceptLanguage) isNothing (step V3E5) (step V3D5)
-
--- Acceptable Language available?
--- TODO implement proper conneg
-decision V3D5 = testEq (return True) True (step V3E5) (respond notAcceptable406)
-
--- Accept-Charset exists?
-decision V3E5 = call (getRqHeader "Accept-Charset") >>= choose where
-  choose = maybe (chooseProvidedCharset "*" >>= v3f6) (step . V3E6)
-
--- Acceptable Charset available?
-decision (V3E6 h) = chooseProvidedCharset h >>= next where
-  next = maybe (call $ errorResponse notAcceptable406 (byteString "No acceptable charset available")) (v3f6 . Just)
-
--- Accept-Encoding exists?
--- also, set content-type header here, now that media type and charset are chosen
-decision V3F6 = setContentType >> call (getRqHeader "Accept-Encoding") >>= next where
-  next = step . maybe V3G7 V3F7
-
--- Acceptable encoding available?
--- Note: This is a departure from webmachine and the activity diagram.
--- Webcrank will NEVER give a "406 Not Acceptable" response if an encoding
--- cannot be found. According to the httpbis semantics, 
---
---   If an Accept-Encoding header field is present in a request and none of
---   the available representations for the response have a content-coding 
---   that is listed as acceptable, the origin server SHOULD send a response
---   without any content-coding.
---
--- http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24#section-5.3.4
-decision (V3F7 acc) = chooseProvidedEncoding acc >>= v3g7 where
-  v3g7 = (>> step V3G7) . call . putRespEncoding
-
--- Resource exists?
--- Set `Vary` header since all conneg is done
-decision V3G7 = setVary >> next where
-  next = testEq (callr resourceExists) True (step V3G8) (step V3H7)
-
-setContentType :: Monad m => ResFn rq rb s m ()
-setContentType = call (ctype >>= putRespHeader hContentType) where
-  ctype = (<>) <$> mtype <*> cset
-  mtype = renderMediaType <$> getRespMediaType
-  cset = maybe "" (("; charset=" <>) . CI.original) <$> getRespCharset
-
-setVary :: Monad m => ResFn rq rb s m ()
-setVary = vars >>= set where
-  set [] = return ()
-  set vs = call (putRespHeader "Vary" $ B.intercalate ", " vs)
-  vars = vary "Accept" contentTypesProvided NEL.toList 
-     <@> vary "Accept-Encoding" encodingsProvided id
-     <@> vary "Accept-Charset" charsetsProvided toCharsetList
-     <@> ((CI.original <$>) <$> callr' variances)
-  vary h f g = vary' . length . g <$> callr' f where
-    vary' l | l < 2     = []
-            | otherwise = [h]
-  toCharsetList NoCharset = []
-  toCharsetList (CharsetsProvided xs) = NEL.toList xs
-
-(<@>) :: (Applicative f, Monoid a) => f a -> f a -> f a
-x <@> y = (<>) <$> x <*> y
-
-chooseProvidedCharset :: Monad m => ByteString -> ResFn rq rb s m (Maybe Charset)
-chooseProvidedCharset acc = choose <$> callr' charsetsProvided where
-  choose NoCharset = Nothing
-  choose (CharsetsProvided cs) = chooseCharset (fst <$> NEL.toList cs) (parseAcceptLang acc)
-
-chooseProvidedEncoding :: Monad m => ByteString -> ResFn rq rb s m (Maybe Encoding)
-chooseProvidedEncoding acc = choose <$> callr' encodingsProvided where
-  choose []  = Nothing
-  choose enc = case chooseEncoding (fst <$> enc) (parseAcceptEnc acc) of
-                 Nothing -> Nothing
-                 Just "identity" -> Nothing
-                 menc -> menc
+-- setVary :: Monad m => ResFn rq rb s m ()
+-- setVary = vars >>= set where
+--   set [] = return ()
+--   set vs = call (putRespHeader "Vary" $ B.intercalate ", " vs)
+--   vars = vary "Accept" contentTypesProvided NEL.toList
+--      <@> vary "Accept-Encoding" encodingsProvided id
+--      <@> vary "Accept-Charset" charsetsProvided toCharsetList
+--      <@> ((CI.original <$>) <$> callr' variances)
+--   vary h f g = vary' . length . g <$> callr' f where
+--     vary' l | l < 2     = []
+--             | otherwise = [h]
+--   toCharsetList NoCharset = []
+--   toCharsetList (CharsetsProvided xs) = NEL.toList xs
 
 defaultErrorRenderer :: (Monad m, HasRequestInfo rq) => ErrorRenderer rq rb s m
 defaultErrorRenderer (s, e) = liftM Just (render s) where
   render (Status 404 _) = do
-    addRespHeader hContentType "text/html"
+    putRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
   render (Status 501 _) = do
-    addRespHeader hContentType "text/html"
+    putRespHeader hContentType "text/html"
     m <- getRqMethod
     return $ BuilderResponseBody $ mconcat [ byteString "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>The server does not support the "
                                            , byteString m
                                            , byteString " method.<p><hr><address>webcrank web server</address></body></html>"
                                            ]
   render (Status 503 _) = do
-    addRespHeader hContentType "text/html"
+    putRespHeader hContentType "text/html"
     return $ BuilderResponseBody $ byteString "<html><head><title>503 Service Unavailable</title></head><body><h1>Service Unavailable</h1>The server is currently unable to handle the request due to a temporary overloading or maintenance of the server.<p><hr><address>webcrank web server</address></body></html>"
   render (Status c msg) = do
-    addRespHeader hContentType "text/html"
-    return $ BuilderResponseBody $ mconcat [ byteString "<html><head><title>" 
-                                           , intDec c
-                                           , charUtf8 ' '
-                                           , byteString msg
-                                           , byteString "</title></head><body><h1>"
-                                           , byteString msg
-                                           , byteString "</h1>"
-                                           , fromMaybe (byteString msg) e
-                                           , byteString "<p><hr><address>webcrank web server</address></body></html>"
-                                           ]
+    putRespHeader hContentType "text/html"
+    return $ BuilderResponseBody $ mconcat
+      [ byteString "<html><head><title>"
+      , intDec c
+      , charUtf8 ' '
+      , byteString msg
+      , byteString "</title></head><body><h1>"
+      , byteString msg
+      , byteString "</h1>"
+      , fromMaybe (byteString msg) e
+      , byteString "<p><hr><address>webcrank web server</address></body></html>"
+      ]
 
 initRqData :: (Monad m, HasRequestInfo rq) => rq -> s -> RqData rq rb s m
 initRqData rq s = RqData

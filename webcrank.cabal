@@ -23,49 +23,68 @@ flag                small_base
 
 library
   build-depends:
-                    attoparsec                      == 0.10.*
-                  , base                            == 4.*
+                    attoparsec                      >= 0.10
+                  , base                            >= 4.6
+                  , blaze-builder
                   , bytestring                      >= 0.10.0
                   , case-insensitive                >= 1.0
+                  , containers
+                  , either
+                  , http-date                       >= 0.0.1
+                  , http-media                      >= 0.4.0
                   , http-types                      >= 0.8.0
+                  , network-uri                     >= 2.5.0
                   , mtl                             >= 2.0
-                  , semigroups                      >= 0.8.3.1 && < 1.0
+                  , semigroups                      >= 0.8.3.1
                   , text                            >= 0.11
-                  , transformers                    >= 0.2     && < 0.4
+                  , time                            >= 1.4
+                  , transformers                    >= 0.2
+                  , utf8-string                     >= 0.3.7
 
   ghc-options:
-                    -Wall -fno-warn-orphans
+                    -Wall
 
   hs-source-dirs:
                     src
 
   exposed-modules:
                     Webcrank
-                    Webcrank.DecisionCore
-                    Webcrank.Types
-                    Webcrank.Types.MediaType
-                    Webcrank.Types.Resource
+                    Webcrank.ServerAPI
 
   other-modules:
-                    Webcrank.Conneg
-                    Webcrank.Parsers
-                    Webcrank.Types.Internal
+                    Webcrank.Internal
+                    Webcrank.Internal.DecisionCore
+                    Webcrank.Internal.ETag
+                    Webcrank.Internal.Parsers
+                    Webcrank.Internal.ReqData
+                    Webcrank.Internal.ReqState
+                    Webcrank.Internal.ServerAPI
+                    Webcrank.Internal.Types
 
 test-suite tests
   type:             exitcode-stdio-1.0
   main-is:          tests.hs
-  hs-source-dirs:   test
-  build-depends:    base
-                  , attoparsec                      == 0.10.*
-                  , bytestring
-                  , case-insensitive
-                  , http-types
-                  , mtl
-                  , semigroups
-                  , QuickCheck
+  hs-source-dirs:   test src
+  build-depends:
+                    QuickCheck
                   , tasty            >= 0.3
                   , tasty-hunit      >= 0.2
                   , tasty-quickcheck >= 0.3
+
+                  , attoparsec                      >= 0.10
+                  , base                            >= 4.6
+                  , blaze-builder
+                  , bytestring                      >= 0.10.0
+                  , case-insensitive                >= 1.0
+                  , containers
+                  , either
+                  , http-date                       >= 0.0.1
+                  , http-media                      >= 0.4.0
+                  , http-types                      >= 0.8.0
+                  , network-uri                     >= 2.5.0
+                  , mtl                             >= 2.0
+                  , semigroups                      >= 0.8.3.1
                   , text                            >= 0.11
-                  , transformers                    >= 0.2     && < 0.4
-                  , webcrank
+                  , time                            >= 1.4
+                  , transformers                    >= 0.2
+                  , utf8-string                     >= 0.3.7
