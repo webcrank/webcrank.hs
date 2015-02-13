@@ -6,22 +6,29 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Webcrank.Internal.DecisionCore where
 
-import Blaze.ByteString.Builder
+import Blaze.ByteString.Builder as BBB
 import Control.Applicative
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.RWS
+import Control.Monad.Trans.Either
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B hiding (drop, take)
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as LB
+import qualified Data.ByteString.Lazy.UTF8 as LB
 import qualified Data.ByteString.UTF8 as B
-import Data.Foldable (traverse_)
+import qualified Data.CaseInsensitive as CI
+import Data.Foldable (find, traverse_)
+import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe
 import Data.Text (Text)
@@ -30,6 +37,7 @@ import Network.HTTP.Media
 import Network.HTTP.Types
 
 import Webcrank.Internal.ETag
+import Webcrank.Internal.Headers
 import Webcrank.Internal.Types
 import Webcrank.Internal.ReqData
 import Webcrank.Internal.ReqState
@@ -39,27 +47,25 @@ data FlowChart m a where
   Decision :: String -> m (FlowChart m a) -> FlowChart m a
   Done :: m a -> FlowChart m a
 
-class (Applicative m, Monad m) => Monad' m
-
-instance (Applicative m, Monad m) => Monad' m
-
-decision :: String               -- label
-         -> m (FlowChart m a)    -- next step
-         -> FlowChart m a
+decision
+  :: String               -- label
+  -> m (FlowChart m a)    -- next step
+  -> FlowChart m a
 decision = Decision
 
-decision' :: Functor m
-          => String        -- label
-          -> m Bool        -- condition
-          -> FlowChart m a -- false path
-          -> FlowChart m a -- true path
-          -> FlowChart m a
+decision'
+  :: Functor m
+  => String        -- label
+  -> m Bool        -- condition
+  -> FlowChart m a -- false path
+  -> FlowChart m a -- true path
+  -> FlowChart m a
 decision' lbl cond ff tf = decision lbl (bool ff tf <$> cond)
 
 done :: m a -> FlowChart m a
 done = Done
 
-done' :: Monad' m => a -> FlowChart m a
+done' :: (Applicative m, Monad m) => a -> FlowChart m a
 done' = Done . return
 
 runFlowChart :: Monad m => FlowChart m a -> m a
@@ -76,13 +82,7 @@ callr' = ReqState . lift . callr
 callrm :: Monad m => (Resource s m -> MaybeT (ReqState' s m) a) -> MaybeT (ReqState s m) a
 callrm = mapMaybeT (ReqState . lift) . callr
 
-fromMaybeT :: Functor m => a -> MaybeT m a -> m a
-fromMaybeT x = fmap (fromMaybe x) . runMaybeT
-
-bool :: a -> a -> Bool -> a
-bool x y p = if p then y else x
-
-respond :: Monad' m => Status -> FlowChart (ReqState s m) Status
+respond :: (Applicative m, Monad m) => Status -> FlowChart (ReqState s m) Status
 respond s =
   if statusCode s >= 400 && statusCode s < 600
     then done $ werror' s
@@ -91,34 +91,23 @@ respond s =
 errorResponse :: Monad m => Status -> LB.ByteString -> FlowChart (ReqState s m) a
 errorResponse s = Done . werror s
 
-hAcceptCharset, hAcceptEncoding, hAllow, hIfMatch, hIfNoneMatch, hIfUnmodifiedSince, hWWWAuthenticate, hETag, hExpires :: HeaderName
-hAcceptCharset = "Accept-Charset"
-hAcceptEncoding = "Accept-Encoding"
-hAllow = "Allow"
-hIfMatch = "If-Match"
-hIfNoneMatch = "If-None-Match"
-hIfUnmodifiedSince = "If-Unmodified-Since"
-hWWWAuthenticate = "WWW-Authenticate"
-hETag = "ETag"
-hExpires = "Expires"
-
 -- Service Available
-b13 :: Monad' m => FlowChart (ReqState s m) Status
+b13 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b13 = decision' "b13" (callr serviceAvailable) (respond serviceUnavailable503) b12
 
 -- Known method?
-b12 :: Monad' m => FlowChart (ReqState s m) Status
+b12 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b12 = decision' "b12" knownMethod (respond notImplemented501) b11 where
   knownMethod = (`elem` knownMethods) <$> getRequestMethod
   -- TODO make it part of the config or part of the resource?
   knownMethods = [methodGet, methodHead, methodPost, methodPut, methodDelete, methodTrace, methodConnect, methodOptions]
 
 -- URI too long?
-b11 :: Monad' m => FlowChart (ReqState s m) Status
+b11 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b11 = decision' "b11" (callr uriTooLong) b10 (respond requestURITooLong414)
 
 -- Method allowed?
-b10 :: Monad' m => FlowChart (ReqState s m) Status
+b10 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b10 = decision "b10" $ do
   ms <- callr' allowedMethods
   m <- getRequestMethod
@@ -129,11 +118,11 @@ b10 = decision "b10" $ do
        return $ respond methodNotAllowed405
 
 -- Malformed?
-b9 :: Monad' m => FlowChart (ReqState s m) Status
+b9 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b9 = decision' "b9" (callr malformedRequest) b8 (respond badRequest400)
 
 -- Authorized?
-b8 :: Monad' m => FlowChart (ReqState s m) Status
+b8 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b8 = decision "b8" $ callr isAuthorized >>= \case
   Authorized -> return b7
   Unauthorized h -> do
@@ -141,30 +130,30 @@ b8 = decision "b8" $ callr isAuthorized >>= \case
     return $ respond unauthorized401
 
 -- Forbidden?
-b7 :: Monad' m => FlowChart (ReqState s m) Status
+b7 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b7 = decision' "b7" (callr forbidden) b6 (respond forbidden403)
 
 -- Okay Content-* Headers?
-b6 :: Monad' m => FlowChart (ReqState s m) Status
+b6 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b6 = decision' "b6" (callr validContentHeaders) (respond notImplemented501) b5
 
 -- Known Content-Type?
-b5 :: Monad' m => FlowChart (ReqState s m) Status
+b5 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b5 = decision' "b5" (callr knownContentType) (respond unsupportedMediaType415) b4
 
 -- Req Entity Too Large?
-b4 :: Monad' m => FlowChart (ReqState s m) Status
+b4 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b4 = decision' "b4" (callr validEntityLength) (respond requestEntityTooLarge413) b3
 
 -- OPTIONS?
-b3 :: Monad' m => FlowChart (ReqState s m) Status
+b3 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 b3 = decision "b3" $ getRequestMethod >>= \m ->
   if m == methodOptions
     then respond ok200 <$ (callr' options >>= putResponseHeaders)
     else return c3
 
 -- Accept exists?
-c3 :: Monad' m => FlowChart (ReqState s m) Status
+c3 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 c3 = decision "c3" $ getRequestHeader hAccept >>= maybe d4' (return . c4) where
   d4' = do
     ts <- callr' contentTypesProvided
@@ -172,31 +161,31 @@ c3 = decision "c3" $ getRequestHeader hAccept >>= maybe d4' (return . c4) where
     return d4
 
 -- Acceptable media type available?
-c4 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+c4 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 c4 acc = decision "c4" $ maybe (return noAcc) d4' =<< match where
   d4' = (d4 <$) . putResponseMediaType
   match = flip matchAccept acc . (fst <$>) <$> callr' contentTypesProvided
   noAcc = errorResponse notAcceptable406 "No acceptable media type available"
 
 -- Accept-Language exists?
-d4 :: Monad' m => FlowChart (ReqState s m) Status
+d4 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 d4 = decision "d4" $ maybe e5 d5 <$> getRequestHeader hAcceptLanguage
 
 -- Acceptable Language available?
 -- TODO implement proper conneg
-d5 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+d5 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 d5 _ = decision "d5" $ return e5
 
 -- Accept-Charset exists?
-e5 :: Monad' m => FlowChart (ReqState s m) Status
+e5 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 e5 = decision "e5" $ getRequestHeader hAcceptCharset >>=
   maybe (f6 <$ setCharsetFrom "*") (return . e6)
 
 -- Acceptable Charset available?
-e6 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+e6 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 e6 acc = decision "e6" $ f6 <$ setCharsetFrom acc
 
-setCharsetFrom :: Monad' m
+setCharsetFrom :: (Applicative m, Monad m)
                => ByteString
                -> ReqState s m ()
 setCharsetFrom acc = callr' charsetsProvided >>= match where
@@ -208,8 +197,15 @@ setCharsetFrom acc = callr' charsetsProvided >>= match where
   noAcc = werror notAcceptable406 "No acceptable charset available"
 
 -- Accept-Encoding exists?
-f6 :: Monad' m => FlowChart (ReqState s m) Status
-f6 = decision "f6" $ maybe g7 f7 <$> getRequestHeader hAcceptEncoding
+-- also set Content-Type header now that charset is chosen
+f6 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
+f6 = decision "f6" $ do
+  putResponseHeader hContentType =<< do
+    mt <- getResponseMediaType
+    cs <- getResponseCharset
+    return $ renderHeader $ maybe mt ((mt /:) . ("charset",) . CI.original) cs
+
+  maybe g7 f7 <$> getRequestHeader hAcceptEncoding
 
 -- Acceptable encoding available?
 --
@@ -223,25 +219,41 @@ f6 = decision "f6" $ maybe g7 f7 <$> getRequestHeader hAcceptEncoding
 --   without any content-coding.
 --
 -- http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24#section-5.3.4
-f7 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+f7 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 f7 acc = decision "f7" $ g7 <$ setEncoding where
   setEncoding = callr' encodingsProvided >>=
     traverse_ putResponseEncoding . flip matchAccept acc . (fst <$>)
 
 -- Resource exists?
-g7 :: Monad' m => FlowChart (ReqState s m) Status
-g7 = decision' "g7" (callr resourceExists) h7 g8
+-- also sets variances now that all conneg is done
+g7 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
+g7 = decision "g7" $ do
+   getVariances >>= \case
+     [] -> return ()
+     vs -> putResponseHeader hVary $ renderHeader vs
+
+   bool h7 g8 <$> callr resourceExists
+
+getVariances :: (Applicative m, Monad m) => ReqState s m [HeaderName]
+getVariances = do
+  acc <- bool [] [hAccept] . (> 1) . List.length <$> callr' contentTypesProvided
+  accEnc <- bool [] [hAcceptEncoding] . (> 1) . List.length <$> callr' encodingsProvided
+  accCh <- flip fmap (callr' charsetsProvided) $ \case
+    NoCharset -> []
+    CharsetsProvided cs -> [hAcceptCharset | NE.length cs > 1]
+  vs <- callr' variances
+  return $ mconcat [acc, accEnc, accCh, vs]
 
 -- If-Match exists?
-g8 :: Monad' m => FlowChart (ReqState s m) Status
+g8 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 g8 = decision "g8" $ maybe h10 g9 <$> getRequestHeader hIfMatch
 
 -- If-Match: * exists
-g9 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+g9 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 g9 h = decision "g9" $ return $ bool (g11 h) h10 (h == "*")
 
 -- ETag in If-Match
-g11 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+g11 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 g11 h = decision "g11" $ fromMaybeT (respond preconditionFailed412) $ do
   e <- callrm generateETag
   if any (strongComparison e) (parseETags h)
@@ -249,19 +261,19 @@ g11 h = decision "g11" $ fromMaybeT (respond preconditionFailed412) $ do
     else mzero
 
 -- If-Match exists (no existing resource variant)?
-h7 :: Monad' m => FlowChart (ReqState s m) Status
+h7 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 h7 = decision "h7" $ maybe i7 (const $ respond preconditionFailed412) <$> getRequestHeader hIfMatch
 
 -- If-Unmodified-Since exists?
-h10 :: Monad' m => FlowChart (ReqState s m) Status
+h10 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 h10 = decision "h10" $ maybe i12 h11 <$> getRequestHeader hIfUnmodifiedSince
 
 -- If-Unmodified-Since is valid date?
-h11 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+h11 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 h11 = decision "h11" . return . maybe i12 h12 . parseHTTPDate
 
 -- Last-Modified > If-Unmodified-Since?
-h12 :: Monad' m => HTTPDate -> FlowChart (ReqState s m) Status
+h12 :: (Applicative m, Monad m) => HTTPDate -> FlowChart (ReqState s m) Status
 h12 d = decision "h12" $ fromMaybeT (respond preconditionFailed412) $ do
   lm <- callrm lastModified
   if lm > d
@@ -269,11 +281,11 @@ h12 d = decision "h12" $ fromMaybeT (respond preconditionFailed412) $ do
     else return i12
 
 -- Moved permanently? (apply PUT to different URI)
-i4 :: Monad' m => FlowChart (ReqState s m) Status
+i4 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 i4 = decision "i4" $ movedPermanentlyOr p3
 
 movedPermanentlyOr
-  :: (Monad' m, Monad' n)
+  :: (Monad m, Applicative n, Monad n)
   => FlowChart (ReqState s n) Status
   -> ReqState s m (FlowChart (ReqState s n) Status)
 movedPermanentlyOr n = fromMaybeT n $ do
@@ -282,90 +294,90 @@ movedPermanentlyOr n = fromMaybeT n $ do
   return $ respond movedPermanently301
 
 -- PUT?
-i7 :: Monad' m => FlowChart (ReqState s m) Status
+i7 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 i7 = decision "i7" $ bool k7 i4 . (== methodPut) <$> getRequestMethod
 
 -- If-None-Match exists?
-i12 :: Monad' m => FlowChart (ReqState s m) Status
+i12 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 i12 = decision "i12" $ maybe l13 i13 <$> getRequestHeader hIfNoneMatch
 
 -- If-None-Match: * exists?
-i13 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+i13 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 i13 h = decision "i13" $ return $ bool (k13 h) j18 (h == "*")
 
 -- GET or HEAD (resource exists)?
-j18 :: Monad' m => FlowChart (ReqState s m) Status
+j18 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 j18 = decision "j18" $ respond . s <$> getRequestMethod where
   s = bool preconditionFailed412 notModified304 . (`elem` [methodGet, methodHead])
 
 -- Moved permanently? (non-PUT edition)
-k5 :: Monad' m => FlowChart (ReqState s m) Status
+k5 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 k5 = decision "k5" $ movedPermanentlyOr l5
 
 -- Previously existed?
-k7 :: Monad' m => FlowChart (ReqState s m) Status
+k7 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 k7 = decision "k7" $ bool l7 k5 <$> callr previouslyExisted
 
 -- Etag in if-none-match?
-k13 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+k13 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 k13 h = decision "k13" $ fromMaybeT l13 $
   const j18 <$> mfilter (`elem` parseETags h) (callrm generateETag)
 
 -- Moved temporarily?
-l5 :: Monad' m => FlowChart (ReqState s m) Status
+l5 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 l5 = decision "l5" $ fromMaybeT m5 $ do
   uri <- callr movedTemporarily
   lift $ putResponseLocation uri
   return $ respond temporaryRedirect307
 
 -- POST? (resource did not previously exist variant)
-l7 :: Monad' m => FlowChart (ReqState s m) Status
+l7 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 l7 = decision' "l7" ((== methodPost) <$> getRequestMethod) (respond notFound404) m7
 
 -- If-Modified-Since exists?
-l13 :: Monad' m => FlowChart (ReqState s m) Status
+l13 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 l13 = decision "l13" $ maybe m16 l14 <$> getRequestHeader hIfModifiedSince
 
 -- If-Modified-Since is a valid date?
-l14 :: Monad' m => ByteString -> FlowChart (ReqState s m) Status
+l14 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 l14 = decision "l14" . return . maybe m16 l15 . parseHTTPDate
 
 -- If-Modified-Since > Now?
-l15 :: Monad' m => HTTPDate -> FlowChart (ReqState s m) Status
+l15 :: (Applicative m, Monad m) => HTTPDate -> FlowChart (ReqState s m) Status
 l15 d = decision' "l15" ((d >) <$> getRequestTime) (l17 d) m16
 
 -- Last-Modified > If-Modified-Since?
-l17 :: Monad' m => HTTPDate -> FlowChart (ReqState s m) Status
+l17 :: (Applicative m, Monad m) => HTTPDate -> FlowChart (ReqState s m) Status
 l17 ims = decision "l17" $ flip fmap (runMaybeT (callrm lastModified)) $ \case
   Just lm | lm > ims -> m16
   Just _ -> respond notModified304
   Nothing -> m16
 
 -- POST? (resource previously existed variant)
-m5 :: Monad' m => FlowChart (ReqState s m) Status
+m5 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 m5 = decision' "m5" ((== methodPost) <$> getRequestMethod) (respond gone410) n5
 
 -- Server allows POST to missing resource?
-m7 :: Monad' m => FlowChart (ReqState s m) Status
+m7 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 m7 = decision' "m7" (callr allowMissingPost) (respond notFound404) n11
 
 -- DELETE?
-m16 :: Monad' m => FlowChart (ReqState s m) Status
+m16 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 m16 = decision' "m16" ((== methodDelete) <$> getRequestMethod) n16 m20
 
 -- DELETE and check for completion?
-m20 :: Monad' m => FlowChart (ReqState s m) Status
+m20 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 m20 = decision "m20" $ callr deleteResource >>= \r ->
   if r
     then bool (respond accepted202) n11 <$> callr deleteCompleted
     else return $ respond internalServerError500
 
 -- Server allows POST to missing resource? (resource did not exist previously)
-n5 :: Monad' m => FlowChart (ReqState s m) Status
+n5 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 n5 = decision' "n5" (callr allowMissingPost) (respond gone410) n11
 
 -- Redirect?
-n11 :: Monad' m => FlowChart (ReqState s m) Status
+n11 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 n11 = decision "n11" $ callr' postAction >>= run where
   run = \case
     PostCreate p ->
@@ -373,9 +385,9 @@ n11 = decision "n11" $ callr' postAction >>= run where
     PostCreateRedir p ->
       respond seeOther303 <$ create p
     PostProcess process ->
-      p11 <$ process
+      p11 <$ (process >> encodeBodyIfSet)
     PostProcessRedir process ->
-      respond seeOther303 <$ (process >>= putResponseLocation)
+      respond seeOther303 <$ (process >>= putResponseLocation >> encodeBodyIfSet)
   create newPath = do
     reqURI <- getRequestURI
     putDispatchPath newPath
@@ -385,7 +397,7 @@ n11 = decision "n11" $ callr' postAction >>= run where
 appendPath :: ByteString -> [Text] -> ByteString
 appendPath uri p = h <> p'' where
   (h, p') = splitURI uri
-  p'' = p' <> dropSlash (toByteString (encodePathSegments p))
+  p'' = p' <> dropSlash (BBB.toByteString (encodePathSegments p))
   dropSlash = B.drop (if B.last p' == 47 then 1 else 0)
 
 splitURI :: ByteString -> (ByteString, ByteString)
@@ -401,44 +413,169 @@ splitURI = ensureNonEmpty . extract where
   breakOnSlash = B.breakByte 47
 
 -- POST? (resource exists)
-n16 :: Monad' m => FlowChart (ReqState s m) Status
+n16 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 n16 = decision' "n16" ((== methodPost) <$> getRequestMethod) o16 n11
 
 -- Conflict? (resource exists)
-o14 :: Monad' m => FlowChart (ReqState s m) Status
+o14 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 o14 = decision "o14" isConflict'
 
-isConflict' :: Monad' m => ReqState s m (FlowChart (ReqState s m) Status)
+isConflict' :: (Applicative m, Monad m) => ReqState s m (FlowChart (ReqState s m) Status)
 isConflict' = callr' isConflict >>= \conflict ->
   if conflict
     then return $ respond conflict409
     else p11 <$ accept
 
 -- PUT? (resource exists)
-o16 :: Monad' m => FlowChart (ReqState s m) Status
+o16 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 o16 = decision' "o16" ((== methodPut) <$> getRequestMethod) o18 o14
 
 -- Multiple representations?
-o18 :: Monad' m => FlowChart (ReqState s m) Status
-o18 = decision' "o18" (callr multipleChoices) (respond ok200) (respond multipleChoices300)
+-- also generate body for GET and HEAD
+o18 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
+o18 = decision "o18" $ do
+  m <- getRequestMethod
+  when (m == methodGet || m == methodHead) $ do
+    traverseMaybeT_ (putResponseHeader hETag . renderHeader) (callrm generateETag)
+    traverseMaybeT_ (putResponseHeader hLastModified . renderHeader) (callrm lastModified)
+    traverseMaybeT_ (putResponseHeader hExpires . renderHeader) (callrm expires)
+
+  when (m == methodGet) $ getResponseMediaType >>= \mt ->
+    callr' contentTypesProvided >>= \cts ->
+      case find ((mt ==) . fst) cts of
+        Nothing -> return ()
+        Just (_, f) -> f >>= encodeBody >>= putResponseBody . Just
+
+  bool (respond ok200) (respond multipleChoices300) <$> callr multipleChoices
 
 -- Response includes an entity?
-o20 :: Monad' m => FlowChart (ReqState s m) Status
+o20 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 o20 = decision "o20" $
   maybe (respond noContent204) (const o18) <$> getResponseBody
 
 -- Conflict? (resource doesn't exist)
-p3 :: Monad' m => FlowChart (ReqState s m) Status
+p3 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 p3 = decision "p3" isConflict'
 
 -- New resource? (new if there is a location header)
-p11 :: Monad' m => FlowChart (ReqState s m) Status
+p11 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 p11 = decision "p11" $
   maybe o20 (const $ respond created201) <$> getResponseLocation
 
-accept :: Monad' m => ReqState s m ()
-accept = getContentType >>= accept' where
-  getContentType = fromMaybe "application/octet-stream" <$> getRequestHeader hContentType
+accept :: (Applicative m, Monad m) => ReqState s m ()
+accept = getRequestContentType >>= accept' >> encodeBodyIfSet where
+  getRequestContentType =
+    fromMaybe "application/octet-stream" <$> getRequestHeader hContentType
   accept' ct = callr' contentTypesAccepted >>= \fs ->
     fromMaybe (werror' unsupportedMediaType415) (mapContentMedia fs ct)
 
+handleRequest
+  :: (Applicative m, MonadCatch m)
+  => ServerAPI m
+  -> Resource s m
+  -> m ()
+handleRequest api r = initRequest r >>= run >>= finish where
+  run = runReqState' run' r . initReqData api
+  run' = (run'' <* callr finishRequest) `catch` handleError
+  run'' = runEitherT (unReqState $ runFlowChart b13) >>= \case
+    Left (Error s rs) -> s <$ prepError s rs
+    Left (Halt s) -> s <$ prepResponse s
+    Right s -> s <$ prepResponse s
+
+  -- TODO
+  -- * log decision states
+  finish (s, d, _) = do
+    srvPutResponseStatus api s
+    srvPutResponseHeaders api (_reqDataRespHeaders d)
+    traverse_ (srvPutResponseBody api) (_reqDataRespBody d)
+
+prepResponse :: (Applicative m, Monad m) => Status -> ReqState' s m ()
+prepResponse s = case statusCode s of
+  c | c >= 400 && c < 600 -> prepError s Nothing
+  304 -> do
+    removeResponseHeader hContentType
+    putResponseBody Nothing
+    traverseMaybeT_ (putResponseHeader hETag . renderHeader) (callr generateETag)
+    traverseMaybeT_ (putResponseHeader hExpires . renderHeader) (callr expires)
+  _ -> return ()
+
+-- TODO make it customizable
+prepError
+  :: (Applicative m, Monad m)
+  => Status
+  -> Maybe LB.ByteString
+  -> ReqState' s m ()
+prepError s r = putResponseBody . Just =<< encodeBody' =<< renderError s r
+
+handleError
+  :: (Applicative m, Monad m)
+  => SomeException
+  -> ReqState' s m Status
+handleError = (internalServerError500 <$) . prepError internalServerError500 . Just . LB.fromString . show
+
+renderError
+  :: (Applicative m, Monad m)
+  => Status
+  -> Maybe LB.ByteString
+  -> ReqState' s m Body
+renderError s reason = maybe render return =<< getResponseBody where
+  render =  putResponseHeader hContentType "text/html" >> errorBody
+  reason' = fromMaybe (LB.fromStrict $ statusMessage s) reason
+  errorBody = case statusCode s of
+    404 -> return "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
+    500 -> return $ mconcat
+      [ "<html><head><title>500 Internal Server Error</title></head><body><h1>Internal Server Error</h1>The server encountered an error while processing this request:<br><pre>"
+      , reason'
+      , "</pre><p><hr><address>webcrank web server</address></body></html>"
+      ]
+    501 -> flip fmap getRequestMethod $ \m -> mconcat
+      [ "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>The server does not support the "
+      , LB.fromStrict m
+      , " method.<br><p><hr><address>webmachine web server</address></body></html>"
+      ]
+    503 -> return "<html><head><title>503 Service Unavailable</title></head><body><h1>Service Unavailable</h1>The server is currently unable to handle the request due to a temporary overloading or maintenance of the server.<br><p><hr><address>webcrank web server</address></body></html>"
+    _ -> return $ BB.toLazyByteString $ mconcat
+      [ "<html><head><title>"
+      , BB.intDec $ statusCode s
+      , " "
+      , BB.byteString $ statusMessage s
+      , "</title></head><body><h1>"
+      , BB.byteString $ statusMessage s
+      , "</h2>"
+      , BB.lazyByteString reason'
+      , "<p><hr><address>webcrank web server</address></body></html>"
+      ]
+
+encodeBodyIfSet :: (Applicative m, Monad m) => ReqState s m ()
+encodeBodyIfSet = getResponseBody >>=
+  traverse_ ((putResponseBody . Just =<<) . encodeBody)
+
+encodeBody :: (Applicative m, Monad m) => Body -> ReqState s m Body
+encodeBody = ReqState . lift . encodeBody'
+
+encodeBody' :: (Applicative m, Monad m) => Body -> ReqState' s m Body
+encodeBody' b = do
+  cs <- getResponseCharset >>= \case
+    Nothing -> return id
+    Just cs -> flip fmap (callr charsetsProvided) $ \case
+      NoCharset -> id
+      CharsetsProvided cps ->
+        case find ((cs ==) . fst) cps of
+          Nothing -> id
+          Just (_, x) -> x
+  enc <- getResponseEncoding >>= \case
+    Nothing -> return id
+    Just e -> flip fmap (callr encodingsProvided) $ \es ->
+      case find ((e ==) . fst) es of
+        Nothing -> id
+        Just (_, x) -> x
+  return $ enc $ cs b
+
+bool :: a -> a -> Bool -> a
+bool x y p = if p then y else x
+
+fromMaybeT :: Functor m => a -> MaybeT m a -> m a
+fromMaybeT x = fmap (fromMaybe x) . runMaybeT
+
+traverseMaybeT_:: (Applicative m, Monad m) => (a -> m ()) -> MaybeT m a -> m ()
+traverseMaybeT_ f = (traverse_ f =<<) . runMaybeT

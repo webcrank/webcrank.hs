@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -7,6 +8,7 @@
 module Webcrank.Internal.Types where
 
 import Control.Applicative
+import Control.Monad.Catch
 import Control.Monad.RWS
 import Control.Monad.Trans.Either
 import Control.Monad.Trans.Maybe
@@ -14,13 +16,14 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString.UTF8 as B
 import Data.CaseInsensitive (CI)
-import qualified Data.CaseInsensitive as CI
 import Data.Map (Map)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import Network.HTTP.Date
 import Network.HTTP.Media
 import Network.HTTP.Types
+
+import Webcrank.Internal.Headers
 
 data ServerAPI m = ServerAPI
   { srvGetRequestMethod :: m Method
@@ -42,7 +45,7 @@ data ServerAPI m = ServerAPI
     -- ^ Put the header key-value-pair in the response. If a header with the same
     -- name already exists, it is overwritten with the new value
 
-  , srvPutResponseBody :: LB.ByteString -> m ()
+  , srvPutResponseBody :: Body -> m ()
     -- ^ Sets the lazy @ByteString@ as the body of the response.
   }
 
@@ -50,15 +53,17 @@ type Encoding = CI ByteString
 
 type Charset = CI ByteString
 
+type Body = LB.ByteString
+
 data ReqData s m = ReqData
   { _reqDataServerAPI :: ServerAPI m
   , _reqDataState :: s
   , _reqDataRespMediaType :: MediaType
   , _reqDataRespCharset :: Maybe Charset
-  , _reqDataRespEncoding :: Encoding
+  , _reqDataRespEncoding :: Maybe Encoding
   , _reqDataDispPath :: [Text]
   , _reqDataRespHeaders :: Map HeaderName [ByteString]
-  , _reqDataRespBody :: Maybe LB.ByteString
+  , _reqDataRespBody :: Maybe Body
   }
 
 newtype ReqState' s m a = ReqState' { unReqState' :: RWST (Resource s m) () (ReqData s m) m a }
@@ -74,6 +79,18 @@ instance Monad m => MonadReader (Resource s m) (ReqState' s m) where
 instance Monad m => MonadState (ReqData s m) (ReqState' s m) where
   get = ReqState' get
   put = ReqState' . put
+
+instance MonadThrow m => MonadThrow (ReqState' s m) where
+  throwM = ReqState' . throwM
+
+instance MonadCatch m => MonadCatch (ReqState' s m) where
+  catch a = ReqState' . catch (unReqState' a) . (unReqState' .)
+
+instance MonadMask m => MonadMask (ReqState' s m) where
+  mask a = ReqState' $ mask $ \u -> unReqState' (a $ q u) where
+    q u = ReqState' . u . unReqState'
+  uninterruptibleMask a = ReqState' $ uninterruptibleMask $ \u -> unReqState' (a $ q u) where
+    q u = ReqState' . u . unReqState'
 
 data Halt = Halt Status | Error Status (Maybe LB.ByteString)
   deriving (Eq, Show)
@@ -92,21 +109,17 @@ instance Monad m => MonadState (ReqData s m) (ReqState s m) where
   get = ReqState get
   put = ReqState . put
 
+instance MonadThrow m => MonadThrow (ReqState s m) where
+  throwM = ReqState . throwM
+
+instance MonadCatch m => MonadCatch (ReqState s m) where
+  catch a = ReqState . catch (unReqState a) . (unReqState .)
+
 data Authorized = Authorized | Unauthorized ByteString
 
 data CharsetsProvided
   = NoCharset
-  | CharsetsProvided (NonEmpty (Charset, LB.ByteString -> LB.ByteString))
-
-instance RenderHeader (CI ByteString) where
-  renderHeader = CI.original
-
-instance Accept (CI ByteString) where
-  parseAccept = Just . CI.mk
-  matches a b = case b of
-    "*" -> True
-    _ -> a == b
-  moreSpecificThan _ b = b == "*"
+  | CharsetsProvided (NonEmpty (Charset, Body -> Body))
 
 data ETag = StrongETag ByteString | WeakETag ByteString deriving Eq
 
@@ -114,6 +127,11 @@ instance Show ETag where
   show e = B.toString $ case e of
     StrongETag v -> "\"" <> v <> "\""
     WeakETag v -> "W/\"" <> v <> "\""
+
+instance RenderHeader ETag where
+  renderHeader = \case
+    StrongETag v -> quotedString v
+    WeakETag v -> "W/" <> quotedString v
 
 data PostAction s m
   = PostCreate [Text]
@@ -162,7 +180,7 @@ data Resource s m = Resource
     -- ^ If the OPTIONS method is supported and is used, the headers that
     -- should appear in the response.
 
-  , contentTypesProvided :: ReqState' s m [(MediaType, ReqState s m LB.ByteString)]
+  , contentTypesProvided :: ReqState' s m [(MediaType, ReqState s m Body)]
     -- ^ Content negotiation is driven by this function. For example, if a
     -- client request includes an @Accept@ header with a value that does not
     -- appear as a @MediaType@ in any of the tuples, then a @406 Not
@@ -172,7 +190,7 @@ data Resource s m = Resource
   , charsetsProvided :: ReqState' s m CharsetsProvided
     -- ^ Used on GET requests to ensure that the entity is in @Charset@.
 
-  , encodingsProvided :: ReqState' s m [(Encoding, LB.ByteString -> LB.ByteString)]
+  , encodingsProvided :: ReqState' s m [(Encoding, Body -> Body)]
     -- ^ Used on GET requests to ensure that the body is encoded.
     -- One useful setting is to have the function check on method, and on GET
     -- requests return @[("identity", id), ("gzip", compress)]@ as this is all

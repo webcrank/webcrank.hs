@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Webcrank
@@ -16,11 +17,18 @@ module Webcrank
   , ETag(..)
   , PostAction(..)
   , Halt(..)
+  , addHeader
+  , putHeader
+  , writeLBS
   ) where
 
 import Control.Monad
+import Control.Monad.State
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
 import Data.List.NonEmpty
+import qualified Data.Map as Map
+import Data.Monoid
 import Network.HTTP.Types
 
 import Webcrank.Internal
@@ -64,6 +72,16 @@ resource' = resource $ return ()
 
 provideCharsets
   :: Monad m
-  => NonEmpty (Charset, LB.ByteString -> LB.ByteString)
+  => NonEmpty (Charset, Body -> Body)
   -> ReqState' s m CharsetsProvided
 provideCharsets = return . CharsetsProvided
+
+putHeader :: MonadState (ReqData s n) m => HeaderName -> ByteString -> m ()
+putHeader h v = modifyResponseHeaders (Map.insert h [v])
+
+addHeader :: MonadState (ReqData s n) m => HeaderName -> ByteString -> m ()
+addHeader h v = modifyResponseHeaders (Map.insertWith (<>) h [v])
+
+writeLBS :: MonadState (ReqData s n) m => LB.ByteString -> m ()
+writeLBS = putResponseBody . Just
+

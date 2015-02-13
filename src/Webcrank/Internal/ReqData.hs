@@ -5,7 +5,6 @@ module Webcrank.Internal.ReqData where
 
 import Control.Monad.State
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as LB
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -22,19 +21,31 @@ initReqData api s = ReqData
   , _reqDataDispPath = []
   , _reqDataRespMediaType = "application" // "octet-stream"
   , _reqDataRespCharset = Nothing
-  , _reqDataRespEncoding = "identity"
+  , _reqDataRespEncoding = Nothing
   , _reqDataRespHeaders = Map.empty
   , _reqDataRespBody = Nothing
   }
 
+getResponseMediaType :: MonadState (ReqData s n) m => m MediaType
+getResponseMediaType = gets _reqDataRespMediaType
+
 putResponseMediaType :: MonadState (ReqData s n) m => MediaType -> m ()
 putResponseMediaType mt = modify $ \rd -> rd { _reqDataRespMediaType = mt }
+
+getResponseCharset :: MonadState (ReqData s n) m => m (Maybe Charset)
+getResponseCharset = gets _reqDataRespCharset
 
 putResponseCharset :: MonadState (ReqData s n) m => Maybe Charset -> m ()
 putResponseCharset c = modify $ \rd -> rd { _reqDataRespCharset = c }
 
+getResponseEncoding :: MonadState (ReqData s n) m => m (Maybe Encoding)
+getResponseEncoding = gets _reqDataRespEncoding
+
 putResponseEncoding :: MonadState (ReqData s n) m => Encoding -> m ()
-putResponseEncoding e = modify $ \rd -> rd { _reqDataRespEncoding = e }
+putResponseEncoding e = modify $ \rd -> rd { _reqDataRespEncoding = e' } where
+  e' = case e of
+    "identity" -> Nothing
+    _ -> Just e
 
 putDispatchPath :: MonadState (ReqData s n) m => [Text] -> m ()
 putDispatchPath p = modify $ \rd -> rd { _reqDataDispPath = p }
@@ -63,9 +74,16 @@ getResponseLocation = getResponseHeader hLocation
 putResponseLocation :: (MonadState (ReqData s n) m) => ByteString -> m ()
 putResponseLocation = putResponseHeader hLocation
 
-getResponseBody :: MonadState (ReqData s n) m => m (Maybe LB.ByteString)
+getResponseBody :: MonadState (ReqData s n) m => m (Maybe Body)
 getResponseBody = gets _reqDataRespBody
 
-putResponseBody :: MonadState (ReqData s n) m => LB.ByteString -> m ()
-putResponseBody b = modify $ \rd -> rd { _reqDataRespBody = Just b }
+modifyResponseBody
+  :: MonadState (ReqData s n) m
+  => (Maybe Body -> Maybe Body)
+  -> m ()
+modifyResponseBody f = modify $ \rd ->
+  rd { _reqDataRespBody = f $ _reqDataRespBody rd }
+
+putResponseBody :: MonadState (ReqData s n) m => Maybe Body -> m ()
+putResponseBody = modifyResponseBody . const
 

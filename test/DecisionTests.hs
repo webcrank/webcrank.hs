@@ -5,6 +5,7 @@
 module DecisionTests where
 
 import Control.Applicative
+import Control.Monad.Catch.Pure
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -257,9 +258,9 @@ f7Tests :: TestTree
 f7Tests = decisionTestGroup "f7" "Acceptable encoding available?"
   [ testCase "True ==> g7 + encoding" $
       let r = resource' { encodingsProvided = return [("gzip", id)] }
-      in afterEnc (f7 "gzip") r req @?= (Decision' "g7", "gzip")
+      in afterEnc (f7 "gzip") r req @?= (Decision' "g7", Just "gzip")
   , testCase "False ==> g7 + identity" $
-      afterEnc (f7 "gzip") resource' req @?= (Decision' "g7", "identity")
+      afterEnc (f7 "gzip") resource' req @?= (Decision' "g7", Nothing)
   ] where
     afterEnc s r rq = case after s r rq of
       (d, rd) -> (d, _reqDataRespEncoding rd)
@@ -679,7 +680,10 @@ afterWith
   -> Req
   -> (ReqData s TestState -> ReqData s TestState)
   -> (Decision', ReqData s TestState)
-afterWith s r rq f = evalState next (rq, res) where
+afterWith s r rq f = run where
+  run = case evalState (runCatchT next) (rq, res) of
+    Left e -> error $ show e
+    Right a -> a
   next = do
     rd <- f . initReqData testAPI <$> initRequest r
     case s of

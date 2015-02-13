@@ -1,8 +1,9 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module TestServerAPI where
 
-import Control.Applicative
+import Control.Monad.Catch.Pure
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
@@ -46,7 +47,7 @@ req = Req
 res :: Res
 res = Res ok200 Map.empty LB.empty
 
-type TestState = State (Req, Res)
+type TestState = CatchT (State (Req, Res))
 
 testAPI :: ServerAPI TestState
 testAPI = ServerAPI
@@ -62,11 +63,7 @@ testAPI = ServerAPI
       modify $ \(rq, rs) -> (rq, rs { resBody = b })
   }
 
-runTestReqState
-  :: ReqState s TestState a
-  -> Resource s TestState
-  -> Req
-  -> (Either Halt a, ReqData s TestState, ())
-runTestReqState s r rq = evalState (rd >>= runReqState s r) (rq, res) where
-  rd = initReqData testAPI <$> initRequest r
+handleTestReq :: Resource s TestState -> Req -> (Req, Res)
+handleTestReq r rq = execState run (rq, res) where
+  run = runCatchT (handleRequest testAPI r)
 

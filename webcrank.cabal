@@ -30,6 +30,7 @@ library
                   , case-insensitive                >= 1.0
                   , containers
                   , either
+                  , exceptions
                   , http-date                       >= 0.0.1
                   , http-media                      >= 0.4.0
                   , http-types                      >= 0.8.0
@@ -55,6 +56,7 @@ library
                     Webcrank.Internal
                     Webcrank.Internal.DecisionCore
                     Webcrank.Internal.ETag
+                    Webcrank.Internal.Headers
                     Webcrank.Internal.Parsers
                     Webcrank.Internal.ReqData
                     Webcrank.Internal.ReqState
@@ -78,6 +80,7 @@ test-suite tests
                   , case-insensitive                >= 1.0
                   , containers
                   , either
+                  , exceptions
                   , http-date                       >= 0.0.1
                   , http-media                      >= 0.4.0
                   , http-types                      >= 0.8.0
