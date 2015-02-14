@@ -7,6 +7,7 @@ import Data.Attoparsec.ByteString.Char8
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Maybe (catMaybes)
+import Data.Monoid
 import Prelude hiding (takeWhile)
 
 dquote :: Char
@@ -46,7 +47,7 @@ quotedStringP = dquoteP *> str <* dquoteP <?> "quoted-string" where
   str = B.concat <$> many (qdtextP <|> quotedPairP)
   qdtextP = takeWhile1 (inClass qdtext) <?> "qdtext"
   quotedPairP = char '\\' *> qc <?> "quoted-pair" where
-    qc = B.singleton <$> satisfy (inClass (vchar ++ [htab, sp] ++ obsText))
+    qc = B.singleton <$> satisfy (inClass (vchar <> [htab, sp] <> obsText))
 
 qdtext :: String
 qdtext = concat

@@ -31,7 +31,9 @@ module Webcrank
   , Authorized(..)
   , ETag(..)
   , PostAction(..)
-  , module X
+  , module Network.HTTP.Date
+  , module Network.HTTP.Media
+  , module Network.HTTP.Types
   , hAcceptCharset, hAcceptEncoding, hAllow, hETag, hExpires, hIfMatch, hIfNoneMatch, hIfUnmodifiedSince, hTransferEncoding, hVary, hWWWAuthenticate
   ) where
 
@@ -44,9 +46,9 @@ import Data.List.NonEmpty
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Monoid
-import Network.HTTP.Date as X
-import Network.HTTP.Media as X
-import Network.HTTP.Types as X
+import Network.HTTP.Date
+import Network.HTTP.Media
+import Network.HTTP.Types
 
 import Webcrank.Internal
 
