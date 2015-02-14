@@ -13,7 +13,8 @@
 
 module Webcrank.Internal.DecisionCore where
 
-import Blaze.ByteString.Builder as BBB
+import qualified Blaze.ByteString.Builder as BB
+import qualified Blaze.ByteString.Builder.Char.Utf8 as BB
 import Control.Applicative
 import Control.Lens
 import Control.Monad.Catch
@@ -23,7 +24,6 @@ import Control.Monad.Trans.Either
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B hiding (drop, take)
-import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString.Lazy.UTF8 as LB
 import qualified Data.ByteString.UTF8 as B
@@ -407,7 +407,7 @@ n11 = decision "n11" $ callr' postAction >>= run where
 appendPath :: ByteString -> [Text] -> ByteString
 appendPath uri p = h <> p'' where
   (h, p') = splitURI uri
-  p'' = p' <> dropSlash (BBB.toByteString (encodePathSegments p))
+  p'' = p' <> dropSlash (BB.toByteString (encodePathSegments p))
   dropSlash = B.drop (if B.last p' == 47 then 1 else 0)
 
 splitURI :: ByteString -> (ByteString, ByteString)
@@ -544,15 +544,15 @@ renderError s reason = maybe render return =<< use respBody where
       ]
     503 -> return "<html><head><title>503 Service Unavailable</title></head><body><h1>Service Unavailable</h1>The server is currently unable to handle the request due to a temporary overloading or maintenance of the server.<br><p><hr><address>webcrank web server</address></body></html>"
     _ -> return $ BB.toLazyByteString $ mconcat
-      [ "<html><head><title>"
-      , BB.intDec $ statusCode s
-      , " "
-      , BB.byteString $ statusMessage s
-      , "</title></head><body><h1>"
-      , BB.byteString $ statusMessage s
-      , "</h2>"
-      , BB.lazyByteString reason'
-      , "<p><hr><address>webcrank web server</address></body></html>"
+      [ BB.fromByteString "<html><head><title>"
+      , BB.fromShow $ statusCode s
+      , BB.fromByteString " "
+      , BB.fromByteString $ statusMessage s
+      , BB.fromByteString "</title></head><body><h1>"
+      , BB.fromByteString $ statusMessage s
+      , BB.fromByteString "</h2>"
+      , BB.fromLazyByteString reason'
+      , BB.fromByteString "<p><hr><address>webcrank web server</address></body></html>"
       ]
 
 encodeBodyIfSet :: (Applicative m, Monad m) => ReqState s m ()
