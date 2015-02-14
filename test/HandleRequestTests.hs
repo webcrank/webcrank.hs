@@ -3,15 +3,10 @@
 module HandleRequestTests where
 
 import qualified Data.Map as Map
-import Network.HTTP.Date
-import Network.HTTP.Media
-import Network.HTTP.Types
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Webcrank
-import Webcrank.Internal
-
 import TestServerAPI
 
 handleRequestTests :: TestTree
@@ -37,7 +32,7 @@ postTest = testCase "POST" $
   let
     r = resource'
       { contentTypesAccepted =
-          return [("plain" // "text", putHeader hContentType "plain/text" >> writeLBS "webcrank")]
+          return [("plain" // "text", putResponseHeader hContentType "plain/text" >> writeLBS "webcrank")]
       , postAction = return $ PostCreate ["new"]
       , allowedMethods = return [methodGet, methodHead, methodPost]
       }
@@ -55,7 +50,7 @@ putTest = testCase "PUT" $
   let
     r = resource'
       { contentTypesAccepted =
-          return [("plain" // "text", putHeader hContentType "plain/text" >> writeLBS "webcrank")]
+          return [("plain" // "text", putResponseHeader hContentType "plain/text" >> writeLBS "webcrank")]
       , allowedMethods = return [methodGet, methodHead, methodPut]
       }
     rq = req

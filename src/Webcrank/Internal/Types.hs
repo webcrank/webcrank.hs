@@ -1,13 +1,16 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Webcrank.Internal.Types where
 
 import Control.Applicative
+import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.RWS
 import Control.Monad.Trans.Either
@@ -57,7 +60,7 @@ type Body = LB.ByteString
 
 data ReqData s m = ReqData
   { _reqDataServerAPI :: ServerAPI m
-  , _reqDataState :: s
+  , _reqDataReqContext :: s
   , _reqDataRespMediaType :: MediaType
   , _reqDataRespCharset :: Maybe Charset
   , _reqDataRespEncoding :: Maybe Encoding
@@ -65,6 +68,8 @@ data ReqData s m = ReqData
   , _reqDataRespHeaders :: Map HeaderName [ByteString]
   , _reqDataRespBody :: Maybe Body
   }
+
+makeFields ''ReqData
 
 newtype ReqState' s m a = ReqState' { unReqState' :: RWST (Resource s m) () (ReqData s m) m a }
   deriving (Functor, Applicative, Monad)
@@ -85,12 +90,6 @@ instance MonadThrow m => MonadThrow (ReqState' s m) where
 
 instance MonadCatch m => MonadCatch (ReqState' s m) where
   catch a = ReqState' . catch (unReqState' a) . (unReqState' .)
-
-instance MonadMask m => MonadMask (ReqState' s m) where
-  mask a = ReqState' $ mask $ \u -> unReqState' (a $ q u) where
-    q u = ReqState' . u . unReqState'
-  uninterruptibleMask a = ReqState' $ uninterruptibleMask $ \u -> unReqState' (a $ q u) where
-    q u = ReqState' . u . unReqState'
 
 data Halt = Halt Status | Error Status (Maybe LB.ByteString)
   deriving (Eq, Show)

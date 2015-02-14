@@ -2,34 +2,51 @@
 {-# LANGUAGE LambdaCase #-}
 
 module Webcrank
-  ( Resource(..)
+  ( -- * Resources
+    Resource(..)
   , resource
   , resource'
+    -- * Monad
   , ReqState
   , halt
   , werror
   , ReqState'
-  , Authorized(..)
+    -- * Request context
+  , HasReqContext(..)
+  , getRequestContext
+    -- * Charsets
   , Charset
   , CharsetsProvided(..)
   , provideCharsets
+    -- * Headers
+  , HasRespHeaders(..)
+  , addResponseHeader
+  , putResponseHeader
+    -- * Body
+  , HasRespBody(..)
+  , Body
+  , writeLBS
+    -- * Other
   , Encoding
+  , Authorized(..)
   , ETag(..)
   , PostAction(..)
-  , Halt(..)
-  , addHeader
-  , putHeader
-  , writeLBS
+  , module X
+  , hAcceptCharset, hAcceptEncoding, hAllow, hETag, hExpires, hIfMatch, hIfNoneMatch, hIfUnmodifiedSince, hTransferEncoding, hVary, hWWWAuthenticate
   ) where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
 import Data.List.NonEmpty
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Monoid
-import Network.HTTP.Types
+import Network.HTTP.Date as X
+import Network.HTTP.Media as X
+import Network.HTTP.Types as X
 
 import Webcrank.Internal
 
@@ -76,12 +93,21 @@ provideCharsets
   -> ReqState' s m CharsetsProvided
 provideCharsets = return . CharsetsProvided
 
-putHeader :: MonadState (ReqData s n) m => HeaderName -> ByteString -> m ()
-putHeader h v = modifyResponseHeaders (Map.insert h [v])
+getRequestContext
+  :: (MonadState s m, HasReqContext s a)
+  => m a
+getRequestContext = use reqContext
 
-addHeader :: MonadState (ReqData s n) m => HeaderName -> ByteString -> m ()
-addHeader h v = modifyResponseHeaders (Map.insertWith (<>) h [v])
+addResponseHeader
+  :: (MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  => HeaderName
+  -> ByteString
+  -> m ()
+addResponseHeader h v = respHeaders %= Map.insertWith (<>) h [v]
 
-writeLBS :: MonadState (ReqData s n) m => LB.ByteString -> m ()
-writeLBS = putResponseBody . Just
+writeLBS
+  :: (MonadState s m, HasRespBody s (Maybe Body))
+  => LB.ByteString
+  -> m ()
+writeLBS = (respBody ?=)
 

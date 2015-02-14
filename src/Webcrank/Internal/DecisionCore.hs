@@ -15,6 +15,7 @@ module Webcrank.Internal.DecisionCore where
 
 import Blaze.ByteString.Builder as BBB
 import Control.Applicative
+import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.RWS
@@ -157,14 +158,14 @@ c3 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 c3 = decision "c3" $ getRequestHeader hAccept >>= maybe d4' (return . c4) where
   d4' = do
     ts <- callr' contentTypesProvided
-    traverse_ (putResponseMediaType . fst) (listToMaybe ts)
+    traverse_ (assign respMediaType . fst) (listToMaybe ts)
     return d4
 
 -- Acceptable media type available?
 c4 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
 c4 acc = decision "c4" $ maybe (return noAcc) d4' =<< match where
-  d4' = (d4 <$) . putResponseMediaType
-  match = flip matchAccept acc . (fst <$>) <$> callr' contentTypesProvided
+  d4' = (d4 <$) . assign respMediaType
+  match = flip matchAccept acc . fmap fst <$> callr' contentTypesProvided
   noAcc = errorResponse notAcceptable406 "No acceptable media type available"
 
 -- Accept-Language exists?
@@ -193,7 +194,7 @@ setCharsetFrom acc = callr' charsetsProvided >>= match where
     NoCharset -> return ()
     CharsetsProvided cs -> match' (fst <$> NE.toList cs)
   match' = maybe noAcc matched . flip matchAccept acc
-  matched = putResponseCharset . Just
+  matched = assign respCharset . Just
   noAcc = werror notAcceptable406 "No acceptable charset available"
 
 -- Accept-Encoding exists?
@@ -201,11 +202,12 @@ setCharsetFrom acc = callr' charsetsProvided >>= match where
 f6 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 f6 = decision "f6" $ do
   putResponseHeader hContentType =<< do
-    mt <- getResponseMediaType
-    cs <- getResponseCharset
+    mt <- use respMediaType
+    cs <- use respCharset
     return $ renderHeader $ maybe mt ((mt /:) . ("charset",) . CI.original) cs
 
-  maybe g7 f7 <$> getRequestHeader hAcceptEncoding
+  acc <- getRequestHeader hAcceptEncoding
+  maybe (g7 <$ chooseEncoding "identity;q=1.0,*,q=0.5") (return . f7) acc
 
 -- Acceptable encoding available?
 --
@@ -220,9 +222,17 @@ f6 = decision "f6" $ do
 --
 -- http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24#section-5.3.4
 f7 :: (Applicative m, Monad m) => ByteString -> FlowChart (ReqState s m) Status
-f7 acc = decision "f7" $ g7 <$ setEncoding where
-  setEncoding = callr' encodingsProvided >>=
-    traverse_ putResponseEncoding . flip matchAccept acc . (fst <$>)
+f7 acc = decision "f7" $ g7 <$ chooseEncoding acc
+
+chooseEncoding :: Monad m => ByteString -> ReqState s m ()
+chooseEncoding acc = callr' encodingsProvided >>= choose where
+  choose = traverse_ putEnc . match . (fst <$>)
+  match es = matchAccept es acc >>= \case
+    "identity" -> Nothing
+    e -> Just e
+  putEnc e = do
+    putResponseHeader hContentEncoding (CI.original e)
+    respEncoding .= Just e
 
 -- Resource exists?
 -- also sets variances now that all conneg is done
@@ -238,7 +248,7 @@ getVariances :: (Applicative m, Monad m) => ReqState s m [HeaderName]
 getVariances = do
   acc <- bool [] [hAccept] . (> 1) . List.length <$> callr' contentTypesProvided
   accEnc <- bool [] [hAcceptEncoding] . (> 1) . List.length <$> callr' encodingsProvided
-  accCh <- flip fmap (callr' charsetsProvided) $ \case
+  accCh <- callr' charsetsProvided <&> \case
     NoCharset -> []
     CharsetsProvided cs -> [hAcceptCharset | NE.length cs > 1]
   vs <- callr' variances
@@ -348,7 +358,7 @@ l15 d = decision' "l15" ((d >) <$> getRequestTime) (l17 d) m16
 
 -- Last-Modified > If-Modified-Since?
 l17 :: (Applicative m, Monad m) => HTTPDate -> FlowChart (ReqState s m) Status
-l17 ims = decision "l17" $ flip fmap (runMaybeT (callrm lastModified)) $ \case
+l17 ims = decision "l17" $ runMaybeT (callrm lastModified) <&> \case
   Just lm | lm > ims -> m16
   Just _ -> respond notModified304
   Nothing -> m16
@@ -390,7 +400,7 @@ n11 = decision "n11" $ callr' postAction >>= run where
       respond seeOther303 <$ (process >>= putResponseLocation >> encodeBodyIfSet)
   create newPath = do
     reqURI <- getRequestURI
-    putDispatchPath newPath
+    dispPath .= newPath
     putResponseLocation $ appendPath reqURI newPath
     accept
 
@@ -440,18 +450,18 @@ o18 = decision "o18" $ do
     traverseMaybeT_ (putResponseHeader hLastModified . renderHeader) (callrm lastModified)
     traverseMaybeT_ (putResponseHeader hExpires . renderHeader) (callrm expires)
 
-  when (m == methodGet) $ getResponseMediaType >>= \mt ->
+  when (m == methodGet) $ use respMediaType >>= \mt ->
     callr' contentTypesProvided >>= \cts ->
       case find ((mt ==) . fst) cts of
         Nothing -> return ()
-        Just (_, f) -> f >>= encodeBody >>= putResponseBody . Just
+        Just (_, f) -> f >>= encodeBody >>= assign respBody . Just
 
   bool (respond ok200) (respond multipleChoices300) <$> callr multipleChoices
 
 -- Response includes an entity?
 o20 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
 o20 = decision "o20" $
-  maybe (respond noContent204) (const o18) <$> getResponseBody
+  maybe (respond noContent204) (const o18) <$> use respBody
 
 -- Conflict? (resource doesn't exist)
 p3 :: (Applicative m, Monad m) => FlowChart (ReqState s m) Status
@@ -482,8 +492,7 @@ handleRequest api r = initRequest r >>= run >>= finish where
     Left (Halt s) -> s <$ prepResponse s
     Right s -> s <$ prepResponse s
 
-  -- TODO
-  -- * log decision states
+  -- TODO log decision states
   finish (s, d, _) = do
     srvPutResponseStatus api s
     srvPutResponseHeaders api (_reqDataRespHeaders d)
@@ -494,7 +503,7 @@ prepResponse s = case statusCode s of
   c | c >= 400 && c < 600 -> prepError s Nothing
   304 -> do
     removeResponseHeader hContentType
-    putResponseBody Nothing
+    respBody .= Nothing
     traverseMaybeT_ (putResponseHeader hETag . renderHeader) (callr generateETag)
     traverseMaybeT_ (putResponseHeader hExpires . renderHeader) (callr expires)
   _ -> return ()
@@ -505,7 +514,7 @@ prepError
   => Status
   -> Maybe LB.ByteString
   -> ReqState' s m ()
-prepError s r = putResponseBody . Just =<< encodeBody' =<< renderError s r
+prepError s r = assign respBody . Just =<< encodeBody' =<< renderError s r
 
 handleError
   :: (Applicative m, Monad m)
@@ -518,7 +527,7 @@ renderError
   => Status
   -> Maybe LB.ByteString
   -> ReqState' s m Body
-renderError s reason = maybe render return =<< getResponseBody where
+renderError s reason = maybe render return =<< use respBody where
   render =  putResponseHeader hContentType "text/html" >> errorBody
   reason' = fromMaybe (LB.fromStrict $ statusMessage s) reason
   errorBody = case statusCode s of
@@ -528,7 +537,7 @@ renderError s reason = maybe render return =<< getResponseBody where
       , reason'
       , "</pre><p><hr><address>webcrank web server</address></body></html>"
       ]
-    501 -> flip fmap getRequestMethod $ \m -> mconcat
+    501 -> getRequestMethod <&> \m -> mconcat
       [ "<html><head><title>501 Not Implemented</title></head><body><h1>Not Implemented</h1>The server does not support the "
       , LB.fromStrict m
       , " method.<br><p><hr><address>webmachine web server</address></body></html>"
@@ -547,25 +556,27 @@ renderError s reason = maybe render return =<< getResponseBody where
       ]
 
 encodeBodyIfSet :: (Applicative m, Monad m) => ReqState s m ()
-encodeBodyIfSet = getResponseBody >>=
-  traverse_ ((putResponseBody . Just =<<) . encodeBody)
+encodeBodyIfSet = respBody <%%= traverse encodeBody
+
+(<%%=):: MonadState s m => Lens' s a -> (a -> m a) -> m ()
+l <%%= f = use l >>= f >>= assign l
 
 encodeBody :: (Applicative m, Monad m) => Body -> ReqState s m Body
 encodeBody = ReqState . lift . encodeBody'
 
 encodeBody' :: (Applicative m, Monad m) => Body -> ReqState' s m Body
 encodeBody' b = do
-  cs <- getResponseCharset >>= \case
+  cs <- use respCharset >>= \case
     Nothing -> return id
-    Just cs -> flip fmap (callr charsetsProvided) $ \case
+    Just cs -> callr charsetsProvided <&> \case
       NoCharset -> id
       CharsetsProvided cps ->
         case find ((cs ==) . fst) cps of
           Nothing -> id
           Just (_, x) -> x
-  enc <- getResponseEncoding >>= \case
+  enc <- use respEncoding >>= \case
     Nothing -> return id
-    Just e -> flip fmap (callr encodingsProvided) $ \es ->
+    Just e -> callr encodingsProvided <&> \es ->
       case find ((e ==) . fst) es of
         Nothing -> id
         Just (_, x) -> x

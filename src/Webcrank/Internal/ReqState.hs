@@ -7,10 +7,18 @@ import Network.HTTP.Types
 
 import Webcrank.Internal.Types
 
-runReqState' :: ReqState' s m a -> Resource s m -> ReqData s m -> m (a, ReqData s m, ())
+runReqState'
+  :: ReqState' s m a
+  -> Resource s m
+  -> ReqData s m
+  -> m (a, ReqData s m, ())
 runReqState' = runRWST . unReqState'
 
-runReqState :: ReqState s m a -> Resource s m -> ReqData s m -> m (Either Halt a, ReqData s m, ())
+runReqState
+  :: ReqState s m a
+  -> Resource s m
+  -> ReqData s m
+  -> m (Either Halt a, ReqData s m, ())
 runReqState = runReqState' . runEitherT . unReqState
 
 halt :: Monad m => Status -> ReqState s m ()

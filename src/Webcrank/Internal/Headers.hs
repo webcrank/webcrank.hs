@@ -25,7 +25,6 @@ hTransferEncoding = "Transfer-Encoding"
 hVary = "Vary"
 hWWWAuthenticate = "WWW-Authenticate"
 
-
 quotedString :: ByteString -> ByteString
 quotedString = B.intercalate "\\\"" . B.split 34
 
