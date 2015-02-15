@@ -21,7 +21,7 @@ handleRequestTests = testGroup "handleRequest"
 
 getTest :: TestTree
 getTest = testCase "GET" $
-  let r = resource' { contentTypesProvided = return [("plain" // "text", return "webcrank")] }
+  let r = resource { contentTypesProvided = return [("plain" // "text", return "webcrank")] }
   in snd (handleTestReq r req) @?=
     Res ok200
       (Map.singleton hContentType ["plain/text"])
@@ -30,7 +30,7 @@ getTest = testCase "GET" $
 postTest :: TestTree
 postTest = testCase "POST" $
   let
-    r = resource'
+    r = resource
       { contentTypesAccepted =
           return [("plain" // "text", putResponseHeader hContentType "plain/text" >> writeLBS "webcrank")]
       , postAction = return $ PostCreate ["new"]
@@ -48,7 +48,7 @@ postTest = testCase "POST" $
 putTest :: TestTree
 putTest = testCase "PUT" $
   let
-    r = resource'
+    r = resource
       { contentTypesAccepted =
           return [("plain" // "text", putResponseHeader hContentType "plain/text" >> writeLBS "webcrank")]
       , allowedMethods = return [methodGet, methodHead, methodPut]
@@ -65,7 +65,7 @@ putTest = testCase "PUT" $
 deleteTest :: TestTree
 deleteTest = testCase "DELETE" $
   let
-    r = resource'
+    r = resource
       { allowedMethods = return [methodGet, methodHead, methodDelete]
       , deleteResource = return True
       }
@@ -78,7 +78,7 @@ deleteTest = testCase "DELETE" $
 notModifiedTest :: TestTree
 notModifiedTest = testCase "Not modified" $
   let
-    r = resource'
+    r = resource
       { lastModified = return defaultHTTPDate
       , generateETag = return $ StrongETag "webcrank"
       , expires = return defaultHTTPDate
@@ -91,6 +91,6 @@ notModifiedTest = testCase "Not modified" $
 
 serviceUnavailableTest :: TestTree
 serviceUnavailableTest = testCase "Service unavailable" $
-  let r = resource' { serviceAvailable = return False }
+  let r = resource { serviceAvailable = return False }
   in resStatus (snd (handleTestReq r req)) @?= serviceUnavailable503
 

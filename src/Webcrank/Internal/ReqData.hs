@@ -15,10 +15,9 @@ import Network.HTTP.Types
 
 import Webcrank.Internal.Types
 
-initReqData :: ServerAPI m -> s -> ReqData s m
-initReqData api s = ReqData
+initReqData :: ServerAPI m -> ReqData m
+initReqData api = ReqData
   { _reqDataServerAPI = api
-  , _reqDataReqContext = s
   , _reqDataDispPath = []
   , _reqDataRespMediaType = "application" // "octet-stream"
   , _reqDataRespCharset = Nothing

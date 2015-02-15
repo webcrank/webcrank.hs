@@ -5,15 +5,11 @@ module Webcrank
   ( -- * Resources
     Resource(..)
   , resource
-  , resource'
     -- * Monad
-  , ReqState
+  , WebcrankT
   , halt
   , werror
-  , ReqState'
-    -- * Request context
-  , HasReqContext(..)
-  , getRequestContext
+  , WebcrankT'
     -- * Charsets
   , Charset
   , CharsetsProvided(..)
@@ -52,10 +48,9 @@ import Network.HTTP.Types
 
 import Webcrank.Internal
 
-resource :: Monad m => m s -> Resource s m
-resource initReq = Resource
-  { initRequest = initReq
-  , serviceAvailable = return True
+resource :: Monad m => Resource m
+resource = Resource
+  { serviceAvailable = return True
   , uriTooLong = return False
   , allowedMethods = return [methodGet, methodHead]
   , malformedRequest = return False
@@ -86,19 +81,11 @@ resource initReq = Resource
   , finishRequest = return ()
   }
 
-resource' :: Monad m => Resource () m
-resource' = resource $ return ()
-
 provideCharsets
   :: Monad m
   => NonEmpty (Charset, Body -> Body)
-  -> ReqState' s m CharsetsProvided
+  -> WebcrankT' m CharsetsProvided
 provideCharsets = return . CharsetsProvided
-
-getRequestContext
-  :: (MonadState s m, HasReqContext s a)
-  => m a
-getRequestContext = use reqContext
 
 addResponseHeader
   :: (MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))

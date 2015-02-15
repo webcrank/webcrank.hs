@@ -60,7 +60,7 @@ library
                     Webcrank.Internal.Headers
                     Webcrank.Internal.Parsers
                     Webcrank.Internal.ReqData
-                    Webcrank.Internal.ReqState
+                    Webcrank.Internal.WebcrankT
                     Webcrank.Internal.ServerAPI
                     Webcrank.Internal.Types
 

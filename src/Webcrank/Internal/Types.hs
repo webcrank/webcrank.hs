@@ -58,9 +58,8 @@ type Charset = CI ByteString
 
 type Body = LB.ByteString
 
-data ReqData s m = ReqData
+data ReqData m = ReqData
   { _reqDataServerAPI :: ServerAPI m
-  , _reqDataReqContext :: s
   , _reqDataRespMediaType :: MediaType
   , _reqDataRespCharset :: Maybe Charset
   , _reqDataRespEncoding :: Maybe Encoding
@@ -71,48 +70,48 @@ data ReqData s m = ReqData
 
 makeFields ''ReqData
 
-newtype ReqState' s m a = ReqState' { unReqState' :: RWST (Resource s m) () (ReqData s m) m a }
+newtype WebcrankT' m a = WebcrankT' { unWebcrankT' :: RWST (Resource m) () (ReqData m) m a }
   deriving (Functor, Applicative, Monad)
 
-instance MonadTrans (ReqState' s) where
-  lift = ReqState' . lift
+instance MonadTrans WebcrankT' where
+  lift = WebcrankT' . lift
 
-instance Monad m => MonadReader (Resource s m) (ReqState' s m) where
-  ask = ReqState' ask
-  local f = ReqState' . local f . unReqState'
+instance Monad m => MonadReader (Resource m) (WebcrankT' m) where
+  ask = WebcrankT' ask
+  local f = WebcrankT' . local f . unWebcrankT'
 
-instance Monad m => MonadState (ReqData s m) (ReqState' s m) where
-  get = ReqState' get
-  put = ReqState' . put
+instance Monad m => MonadState (ReqData m) (WebcrankT' m) where
+  get = WebcrankT' get
+  put = WebcrankT' . put
 
-instance MonadThrow m => MonadThrow (ReqState' s m) where
-  throwM = ReqState' . throwM
+instance MonadThrow m => MonadThrow (WebcrankT' m) where
+  throwM = WebcrankT' . throwM
 
-instance MonadCatch m => MonadCatch (ReqState' s m) where
-  catch a = ReqState' . catch (unReqState' a) . (unReqState' .)
+instance MonadCatch m => MonadCatch (WebcrankT' m) where
+  catch a = WebcrankT' . catch (unWebcrankT' a) . (unWebcrankT' .)
 
 data Halt = Halt Status | Error Status (Maybe LB.ByteString)
   deriving (Eq, Show)
 
-newtype ReqState s m a = ReqState { unReqState :: EitherT Halt (ReqState' s m) a }
+newtype WebcrankT m a = WebcrankT { unWebcrankT :: EitherT Halt (WebcrankT' m) a }
   deriving (Functor, Applicative, Monad)
 
-instance MonadTrans (ReqState s) where
-  lift = ReqState . lift . lift
+instance MonadTrans WebcrankT where
+  lift = WebcrankT . lift . lift
 
-instance Monad m => MonadReader (Resource s m) (ReqState s m) where
-  ask = ReqState ask
-  local f = ReqState . local f . unReqState
+instance Monad m => MonadReader (Resource m) (WebcrankT m) where
+  ask = WebcrankT ask
+  local f = WebcrankT . local f . unWebcrankT
 
-instance Monad m => MonadState (ReqData s m) (ReqState s m) where
-  get = ReqState get
-  put = ReqState . put
+instance Monad m => MonadState (ReqData m) (WebcrankT m) where
+  get = WebcrankT get
+  put = WebcrankT . put
 
-instance MonadThrow m => MonadThrow (ReqState s m) where
-  throwM = ReqState . throwM
+instance MonadThrow m => MonadThrow (WebcrankT m) where
+  throwM = WebcrankT . throwM
 
-instance MonadCatch m => MonadCatch (ReqState s m) where
-  catch a = ReqState . catch (unReqState a) . (unReqState .)
+instance MonadCatch m => MonadCatch (WebcrankT m) where
+  catch a = WebcrankT . catch (unWebcrankT a) . (unWebcrankT .)
 
 data Authorized = Authorized | Unauthorized ByteString
 
@@ -132,110 +131,106 @@ instance RenderHeader ETag where
     StrongETag v -> quotedString v
     WeakETag v -> "W/" <> quotedString v
 
-data PostAction s m
+data PostAction m
   = PostCreate [Text]
   | PostCreateRedir [Text]
-  | PostProcess (ReqState s m ())
-  | PostProcessRedir (ReqState s m ByteString)
+  | PostProcess (WebcrankT m ())
+  | PostProcessRedir (WebcrankT m ByteString)
 
-data Resource s m = Resource
-  { initRequest :: m s
-    -- ^ Perform some initialization for the request and return a state, @s@,
-    -- which will be threaded through all of the other resource functions.
-
-  , serviceAvailable :: ReqState s m Bool
+data Resource m = Resource
+  { serviceAvailable :: WebcrankT m Bool
     -- ^ @False@ will result in @503 Service Unavailable@. Defaults to @True@.
 
-  , uriTooLong :: ReqState s m Bool
+  , uriTooLong :: WebcrankT m Bool
     -- ^ @True@ will result in @414 Request Too Long@. Defaults to @False@.
 
-  , allowedMethods :: ReqState' s m [Method]
+  , allowedMethods :: WebcrankT' m [Method]
     -- ^ If a @Method@ not in this list is requested, then a @405 Method Not
     -- Allowed@ will be sent. Defaults to @GET@ and @HEAD@.
 
-  , malformedRequest :: ReqState s m Bool
+  , malformedRequest :: WebcrankT m Bool
     -- ^ @True@ will result in @400 Bad Request@. Defaults to @False@.
 
-  , isAuthorized :: ReqState s m Authorized
+  , isAuthorized :: WebcrankT m Authorized
     -- ^ If this is @NoAuthz@, the response will be @401 Unauthorized@.
     -- @NoAuthz@ will be used as the challenge WWW-Authenticate header.
     -- Defaults to @Authz@.
 
-  , forbidden :: ReqState s m Bool
+  , forbidden :: WebcrankT m Bool
     -- ^ @True@ will result in @403 Forbidden@. Defaults to @False@.
 
-  , validContentHeaders :: ReqState s m Bool
+  , validContentHeaders :: WebcrankT m Bool
     -- ^ @False@ will result in @501 Not Implemented@. Defaults to @True@.
 
-  , knownContentType :: ReqState s m Bool
+  , knownContentType :: WebcrankT m Bool
     -- ^ @False@ will result in @415 Unsupported Media Type@. Defaults to
     -- @True@.
 
-  , validEntityLength :: ReqState s m Bool
+  , validEntityLength :: WebcrankT m Bool
     -- ^ @False@ will result in @413 Request Entity Too Large@. Defaults to
     -- @True@.
 
-  , options :: ReqState' s m ResponseHeaders
+  , options :: WebcrankT' m ResponseHeaders
     -- ^ If the OPTIONS method is supported and is used, the headers that
     -- should appear in the response.
 
-  , contentTypesProvided :: ReqState' s m [(MediaType, ReqState s m Body)]
+  , contentTypesProvided :: WebcrankT' m [(MediaType, WebcrankT m Body)]
     -- ^ Content negotiation is driven by this function. For example, if a
     -- client request includes an @Accept@ header with a value that does not
     -- appear as a @MediaType@ in any of the tuples, then a @406 Not
     -- Acceptable@ will be sent. If there is a matching @MediaType@, that
     -- function is used to create the entity when a response should include one.
 
-  , charsetsProvided :: ReqState' s m CharsetsProvided
+  , charsetsProvided :: WebcrankT' m CharsetsProvided
     -- ^ Used on GET requests to ensure that the entity is in @Charset@.
 
-  , encodingsProvided :: ReqState' s m [(Encoding, Body -> Body)]
+  , encodingsProvided :: WebcrankT' m [(Encoding, Body -> Body)]
     -- ^ Used on GET requests to ensure that the body is encoded.
     -- One useful setting is to have the function check on method, and on GET
     -- requests return @[("identity", id), ("gzip", compress)]@ as this is all
     -- that is needed to support gzip content encoding.
 
-  , resourceExists :: ReqState s m Bool
+  , resourceExists :: WebcrankT m Bool
     -- ^ @False@ will result in @404 Not Found@. Defaults to @True@.
 
-  , generateETag :: MaybeT (ReqState' s m) ETag
+  , generateETag :: MaybeT (WebcrankT' m) ETag
     -- ^ If this returns an @ETag@, it will be used for the ETag header and for
     -- comparison in conditional requests.
 
-  , lastModified :: MaybeT (ReqState' s m) HTTPDate
+  , lastModified :: MaybeT (WebcrankT' m) HTTPDate
     -- ^ If this returns a @HTTPDate@, it will be used for the Last-Modified header
     -- and for comparison in conditional requests.
 
-  , expires :: MaybeT (ReqState' s m) HTTPDate
+  , expires :: MaybeT (WebcrankT' m) HTTPDate
     -- ^ If this returns a @HTTPDate@, it will be used for the Expires header.
 
-  , movedPermanently :: MaybeT (ReqState s m) ByteString
+  , movedPermanently :: MaybeT (WebcrankT m) ByteString
     -- ^ If this returns a URI, the client will receive a 301 Moved Permanently
     -- with the URI in the Location header.
 
-  , movedTemporarily :: MaybeT (ReqState s m) ByteString
+  , movedTemporarily :: MaybeT (WebcrankT m) ByteString
     -- ^ If this returns a URI, the client will receive a 307 Temporary Redirect
     -- with URI in the Location header.
 
-  , previouslyExisted :: ReqState s m Bool
+  , previouslyExisted :: WebcrankT m Bool
     -- ^ If this returns @True@, the @movedPermanently@ and @movedTemporarily@
     -- callbacks will be invoked to determine whether the response should be
     -- 301 Moved Permanently, 307 Temporary Redirect, or 410 Gone.
 
-  , allowMissingPost :: ReqState s m Bool
+  , allowMissingPost :: WebcrankT m Bool
     -- ^ If the resource accepts POST requests to nonexistent resources, then
     -- this should return @True@. Defaults to @False@.
 
-  , deleteResource :: ReqState s m Bool
+  , deleteResource :: WebcrankT m Bool
     -- ^ This is called when a DELETE request should be enacted, and should return
     -- @True@ if the deletion succeeded or has been accepted.
 
-  , deleteCompleted :: ReqState s m Bool
+  , deleteCompleted :: WebcrankT m Bool
     -- ^ This is only called after a successful @deleteResource@ call, and should
     -- return @False@ if the deletion was accepted but cannot yet be guaranteed to
     -- have finished.
 
-  , postAction :: ReqState' s m (PostAction s m)
+  , postAction :: WebcrankT' m (PostAction m)
     -- ^ If POST requests should be treated as a request to put content into a
     -- (potentially new) resource as opposed to being a generic submission for
     -- processing, then this function should return @PostCreate path@. If it
@@ -243,9 +238,9 @@ data Resource s m = Resource
     -- treated much like a PUT to the path entry. Otherwise, if it returns
     -- @PostProcess a@, then the action @a@ will be run.
 
-  , contentTypesAccepted :: ReqState' s m [(MediaType, ReqState s m ())]
+  , contentTypesAccepted :: WebcrankT' m [(MediaType, WebcrankT m ())]
 
-  , variances :: ReqState' s m [HeaderName]
+  , variances :: WebcrankT' m [HeaderName]
     -- ^ This function should return a list of strings with header names that
     -- should be included in a given response's Vary header. The standard
     -- conneg headers (Accept, Accept-Encoding, Accept-Charset,
@@ -253,16 +248,16 @@ data Resource s m = Resource
     -- the correct elements of those automatically depending on resource
     -- behavior.
 
-  , multipleChoices :: ReqState s m Bool
+  , multipleChoices :: WebcrankT m Bool
     -- ^ If this returns @True@, then it is assumed that multiple
     -- representations of the response are possible and a single one cannot
     -- be automatically chosen, so a @300 Multiple Choices@ will be sent
     -- instead of a @200 OK@.
 
-  , isConflict :: ReqState' s m Bool
+  , isConflict :: WebcrankT' m Bool
     -- ^ If this returns @True@, the client will receive a 409 Conflict.
 
-  , finishRequest :: ReqState' s m ()
+  , finishRequest :: WebcrankT' m ()
     -- ^ Called just before the final response is constructed and sent.
   }
 

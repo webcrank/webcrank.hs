@@ -63,7 +63,7 @@ testAPI = ServerAPI
       modify $ \(rq, rs) -> (rq, rs { resBody = b })
   }
 
-handleTestReq :: Resource s TestState -> Req -> (Req, Res)
+handleTestReq :: Resource TestState -> Req -> (Req, Res)
 handleTestReq r rq = execState run (rq, res) where
   run = runCatchT (handleRequest testAPI r)
 
