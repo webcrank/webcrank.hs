@@ -6,7 +6,7 @@ module DecisionTests where
 
 import Control.Applicative
 import Control.Monad.Catch.Pure
-import Control.Monad.State
+import Control.Monad.Reader
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
@@ -681,7 +681,7 @@ afterWith
   -> (ReqData TestState -> ReqData TestState)
   -> (Decision', ReqData TestState)
 afterWith s r rq f = run where
-  run = case evalState (runCatchT next) (rq, res) of
+  run = case runReader (runCatchT next) rq of
     Left e -> error $ show e
     Right a -> a
   next = do

@@ -22,10 +22,10 @@ handleRequestTests = testGroup "handleRequest"
 getTest :: TestTree
 getTest = testCase "GET" $
   let r = resource { contentTypesProvided = return [("plain" // "text", return "webcrank")] }
-  in snd (handleTestReq r req) @?=
+  in handleTestReq r req @?=
     Res ok200
       (Map.singleton hContentType ["plain/text"])
-      "webcrank"
+      (Just "webcrank")
 
 postTest :: TestTree
 postTest = testCase "POST" $
@@ -40,10 +40,10 @@ postTest = testCase "POST" $
       { reqMethod = methodPost
       , reqHeaders = Map.singleton hContentType ["plain/text"]
       }
-  in snd (handleTestReq r rq) @?=
+  in handleTestReq r rq @?=
     Res created201
       (Map.fromList [(hLocation, ["http://example.com/new"]), (hContentType, ["plain/text"])])
-      "webcrank"
+      (Just "webcrank")
 
 putTest :: TestTree
 putTest = testCase "PUT" $
@@ -57,10 +57,10 @@ putTest = testCase "PUT" $
       { reqMethod = methodPut
       , reqHeaders = Map.singleton hContentType ["plain/text"]
       }
-  in snd (handleTestReq r rq) @?=
+  in handleTestReq r rq @?=
     Res ok200
       (Map.singleton hContentType ["plain/text"])
-      "webcrank"
+      (Just "webcrank")
 
 deleteTest :: TestTree
 deleteTest = testCase "DELETE" $
@@ -70,10 +70,10 @@ deleteTest = testCase "DELETE" $
       , deleteResource = return True
       }
     rq = req { reqMethod = methodDelete }
-  in snd (handleTestReq r rq) @?=
+  in handleTestReq r rq @?=
     Res noContent204
       (Map.singleton hContentType ["application/octet-stream"])
-      ""
+      Nothing
 
 notModifiedTest :: TestTree
 notModifiedTest = testCase "Not modified" $
@@ -84,13 +84,13 @@ notModifiedTest = testCase "Not modified" $
       , expires = return defaultHTTPDate
       }
     rq = req { reqHeaders = Map.singleton hIfModifiedSince [ formatHTTPDate defaultHTTPDate ] }
-  in snd (handleTestReq r rq) @?=
+  in handleTestReq r rq @?=
     Res notModified304
       (Map.fromList [(hETag, ["webcrank"]), (hExpires, [formatHTTPDate defaultHTTPDate])])
-      ""
+      Nothing
 
 serviceUnavailableTest :: TestTree
 serviceUnavailableTest = testCase "Service unavailable" $
   let r = resource { serviceAvailable = return False }
-  in resStatus (snd (handleTestReq r req)) @?= serviceUnavailable503
+  in resStatus (handleTestReq r req) @?= serviceUnavailable503
 

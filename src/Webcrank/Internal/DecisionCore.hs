@@ -31,6 +31,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.Foldable (find, traverse_)
 import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
+import Data.Map (Map)
 import Data.Maybe
 import Data.Text (Text)
 import Network.HTTP.Date
@@ -483,7 +484,7 @@ handleRequest
   :: (Applicative m, MonadCatch m)
   => ServerAPI m
   -> Resource m
-  -> m ()
+  -> m (Status, Map HeaderName [ByteString], Maybe Body)
 handleRequest api r = run >>= finish where
   run = runWebcrankT' run' r $ initReqData api
   run' = (run'' <* callr finishRequest) `catch` handleError
@@ -493,10 +494,8 @@ handleRequest api r = run >>= finish where
     Right s -> s <$ prepResponse s
 
   -- TODO log decision states
-  finish (s, d, _) = do
-    srvPutResponseStatus api s
-    srvPutResponseHeaders api (_reqDataRespHeaders d)
-    traverse_ (srvPutResponseBody api) (_reqDataRespBody d)
+  finish (s, d, _) =
+    return (s, _reqDataRespHeaders d, _reqDataRespBody d)
 
 prepResponse :: (Applicative m, Monad m) => Status -> WebcrankT' m ()
 prepResponse s = case statusCode s of

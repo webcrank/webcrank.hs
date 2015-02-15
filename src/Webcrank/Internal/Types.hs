@@ -40,16 +40,6 @@ data ServerAPI m = ServerAPI
 
   , srvGetRequestTime :: m HTTPDate
     -- ^ Get the time the request was received.
-
-  , srvPutResponseStatus :: Status -> m ()
-    -- ^ Put the status of the response.
-    --
-  , srvPutResponseHeaders :: Map HeaderName [ByteString] -> m ()
-    -- ^ Put the header key-value-pair in the response. If a header with the same
-    -- name already exists, it is overwritten with the new value
-
-  , srvPutResponseBody :: Body -> m ()
-    -- ^ Sets the lazy @ByteString@ as the body of the response.
   }
 
 type Encoding = CI ByteString
