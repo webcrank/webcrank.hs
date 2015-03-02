@@ -61,47 +61,37 @@ data ReqData m = ReqData
 makeFields ''ReqData
 
 newtype WebcrankT' m a = WebcrankT' { unWebcrankT' :: RWST (Resource m) () (ReqData m) m a }
-  deriving (Functor, Applicative, Monad)
+  deriving
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadReader (Resource m)
+    , MonadState (ReqData m)
+    , MonadThrow
+    , MonadCatch
+    )
 
 instance MonadTrans WebcrankT' where
   lift = WebcrankT' . lift
-
-instance Monad m => MonadReader (Resource m) (WebcrankT' m) where
-  ask = WebcrankT' ask
-  local f = WebcrankT' . local f . unWebcrankT'
-
-instance Monad m => MonadState (ReqData m) (WebcrankT' m) where
-  get = WebcrankT' get
-  put = WebcrankT' . put
-
-instance MonadThrow m => MonadThrow (WebcrankT' m) where
-  throwM = WebcrankT' . throwM
-
-instance MonadCatch m => MonadCatch (WebcrankT' m) where
-  catch a = WebcrankT' . catch (unWebcrankT' a) . (unWebcrankT' .)
 
 data Halt = Halt Status | Error Status (Maybe LB.ByteString)
   deriving (Eq, Show)
 
 newtype WebcrankT m a = WebcrankT { unWebcrankT :: EitherT Halt (WebcrankT' m) a }
-  deriving (Functor, Applicative, Monad)
+  deriving
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadReader (Resource m)
+    , MonadState (ReqData m)
+    , MonadThrow
+    , MonadCatch
+    )
 
 instance MonadTrans WebcrankT where
   lift = WebcrankT . lift . lift
-
-instance Monad m => MonadReader (Resource m) (WebcrankT m) where
-  ask = WebcrankT ask
-  local f = WebcrankT . local f . unWebcrankT
-
-instance Monad m => MonadState (ReqData m) (WebcrankT m) where
-  get = WebcrankT get
-  put = WebcrankT . put
-
-instance MonadThrow m => MonadThrow (WebcrankT m) where
-  throwM = WebcrankT . throwM
-
-instance MonadCatch m => MonadCatch (WebcrankT m) where
-  catch a = WebcrankT . catch (unWebcrankT a) . (unWebcrankT .)
 
 data Authorized = Authorized | Unauthorized ByteString
 
