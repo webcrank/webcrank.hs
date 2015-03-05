@@ -1,10 +1,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Webcrank
   ( -- * Resources
     Resource(..)
   , resource
+  , resourceWithHtml
     -- * Monad
   , WebcrankT
   , halt
@@ -22,6 +24,8 @@ module Webcrank
   , HasRespBody(..)
   , Body
   , writeLBS
+  , textBody
+  , lazyTextBody
     -- * Other
   , Encoding
   , Authorized(..)
@@ -42,6 +46,10 @@ import Data.List.NonEmpty
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Monoid
+import Data.Text (Text)
+import qualified Data.Text.Encoding as T
+import qualified Data.Text.Lazy as LT
+import qualified Data.Text.Lazy.Encoding as LT
 import Network.HTTP.Date
 import Network.HTTP.Media
 import Network.HTTP.Types
@@ -81,6 +89,10 @@ resource = Resource
   , finishRequest = return ()
   }
 
+resourceWithHtml :: Monad m => WebcrankT m Body -> Resource m
+resourceWithHtml b =
+  resource { contentTypesProvided = return [("text/html", b)] }
+
 provideCharsets
   :: Monad m
   => NonEmpty (Charset, Body -> Body)
@@ -99,4 +111,10 @@ writeLBS
   => LB.ByteString
   -> m ()
 writeLBS = (respBody ?=)
+
+textBody :: Text -> Body
+textBody = LB.fromStrict . T.encodeUtf8
+
+lazyTextBody :: LT.Text -> Body
+lazyTextBody = LT.encodeUtf8
 

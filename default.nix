@@ -11,12 +11,12 @@ mkDerivation {
   buildDepends = [
     attoparsec base blaze-builder bytestring case-insensitive
     containers either exceptions http-date http-media http-types lens
-    mtl network-uri semigroups text time transformers utf8-string
+    mtl network-uri semigroups text transformers utf8-string
   ];
   testDepends = [
     attoparsec base blaze-builder bytestring case-insensitive
-    containers either exceptions http-date http-media http-types mtl
-    network-uri QuickCheck semigroups tasty tasty-hunit
+    containers either exceptions http-date http-media http-types lens
+    mtl network-uri QuickCheck semigroups tasty tasty-hunit
     tasty-quickcheck text time transformers utf8-string
   ];
   homepage = "https://github.com/webcrank/webcrank";
