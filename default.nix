@@ -6,7 +6,7 @@
 }:
 mkDerivation {
   pname = "webcrank";
-  version = "0.0.1";
+  version = "0.1";
   src = ./.;
   buildDepends = [
     attoparsec base blaze-builder bytestring case-insensitive
