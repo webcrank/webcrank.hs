@@ -1,13 +1,17 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Webcrank
   ( -- * Resources
     Resource(..)
   , resource
+  , resourceWithBody
   , resourceWithHtml
-    -- * Monad
+  , Encoding
+  , Authorized(..)
+  , ETag(..)
+  , PostAction(..)
+    -- * Monad Transformer
   , WebcrankT
   , halt
   , werror
@@ -17,24 +21,33 @@ module Webcrank
   , CharsetsProvided(..)
   , provideCharsets
     -- * Headers
-  , HasRespHeaders(..)
+  , HeadersMap
   , addResponseHeader
   , putResponseHeader
+  , HasRespHeaders(..)
     -- * Body
-  , HasRespBody(..)
   , Body
-  , writeLBS
+  , HasRespBody(..)
   , textBody
   , lazyTextBody
-    -- * Other
-  , Encoding
-  , Authorized(..)
-  , ETag(..)
-  , PostAction(..)
+  , strBody
+  , writeLBS
+  , writeStr
+    -- * Extra convience (re)exports
   , module Network.HTTP.Date
   , module Network.HTTP.Media
   , module Network.HTTP.Types
-  , hAcceptCharset, hAcceptEncoding, hAllow, hETag, hExpires, hIfMatch, hIfNoneMatch, hIfUnmodifiedSince, hTransferEncoding, hVary, hWWWAuthenticate
+  , hAcceptCharset
+  , hAcceptEncoding
+  , hAllow
+  , hETag
+  , hExpires
+  , hIfMatch
+  , hIfNoneMatch
+  , hIfUnmodifiedSince
+  , hTransferEncoding
+  , hVary
+  , hWWWAuthenticate
   ) where
 
 import Control.Lens
@@ -43,8 +56,7 @@ import Control.Monad.State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
 import Data.List.NonEmpty
-import Data.Map (Map)
-import qualified Data.Map as Map
+import qualified Data.HashMap.Strict as HashMap
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
@@ -54,8 +66,14 @@ import Network.HTTP.Date
 import Network.HTTP.Media
 import Network.HTTP.Types
 
-import Webcrank.Internal
+import Webcrank.Internal.Headers
+import Webcrank.Internal.ReqData
+import Webcrank.Internal.Types
+import Webcrank.Internal.WebcrankT
 
+-- | Builds a @Resource m@ value where all the resource functions will
+-- return default values as described in the @'Resource'@ function
+-- documentation.
 resource :: Monad m => Resource m
 resource = Resource
   { serviceAvailable = return True
@@ -89,32 +107,49 @@ resource = Resource
   , finishRequest = return ()
   }
 
-resourceWithHtml :: Monad m => WebcrankT m Body -> Resource m
-resourceWithHtml b =
-  resource { contentTypesProvided = return [("text/html", b)] }
+-- | Creates a resource that provides a single content type.
+resourceWithBody :: Monad m => MediaType -> WebcrankT m Body -> Resource m
+resourceWithBody t b = resource { contentTypesProvided = return [(t, b)] }
 
+-- | Creates a resource that provides a @text/html@ content type.
+resourceWithHtml :: Monad m => WebcrankT m Body -> Resource m
+resourceWithHtml b = resourceWithBody "text/html" b
+
+-- | Shortcut for @return . CharsetsProvided@
 provideCharsets
   :: Monad m
   => NonEmpty (Charset, Body -> Body)
-  -> WebcrankT' m CharsetsProvided
+  -> m CharsetsProvided
 provideCharsets = return . CharsetsProvided
 
+-- | Add a header to the response.
 addResponseHeader
-  :: (MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  :: (MonadState s m, HasRespHeaders s HeadersMap)
   => HeaderName
   -> ByteString
   -> m ()
-addResponseHeader h v = respHeaders %= Map.insertWith (<>) h [v]
+addResponseHeader h v = respHeaders %= HashMap.insertWith (<>) h [v]
 
-writeLBS
-  :: (MonadState s m, HasRespBody s (Maybe Body))
-  => LB.ByteString
-  -> m ()
-writeLBS = (respBody ?=)
-
+-- | Create a response @Body@ from strict @Text@.
 textBody :: Text -> Body
 textBody = LB.fromStrict . T.encodeUtf8
+{-# INLINE textBody #-}
 
+-- | Create a response @Body@ from lazy @Text@.
 lazyTextBody :: LT.Text -> Body
 lazyTextBody = LT.encodeUtf8
+{-# INLINE lazyTextBody #-}
+
+-- | Create a response @Body@ from a @String@.
+strBody :: String -> Body
+strBody = lazyTextBody . LT.pack
+{-# INLINE strBody #-}
+
+-- | Set the response body from a @String@
+writeStr
+  :: (MonadState s m, HasRespBody s (Maybe Body))
+  => String
+  -> m ()
+writeStr = assign respBody . Just . strBody
+{-# INLINE writeStr #-}
 

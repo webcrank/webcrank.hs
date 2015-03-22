@@ -3,5 +3,6 @@ module Webcrank.ServerAPI
   , handleRequest
   ) where
 
-import Webcrank.Internal
+import Webcrank.Internal.Types
+import Webcrank.Internal.DecisionCore
 

@@ -5,7 +5,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Webcrank.Internal.Types where
 
@@ -19,7 +18,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString.UTF8 as B
 import Data.CaseInsensitive (CI)
-import Data.Map (Map)
+import Data.HashMap.Strict (HashMap)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import Network.HTTP.Date
@@ -28,6 +27,7 @@ import Network.HTTP.Types
 
 import Webcrank.Internal.Headers
 
+-- | A dictionary of functions that Webcrank needs in order to make decisions.
 data ServerAPI m = ServerAPI
   { srvGetRequestMethod :: m Method
     -- ^ Get the request method of the current request.
@@ -42,10 +42,15 @@ data ServerAPI m = ServerAPI
     -- ^ Get the time the request was received.
   }
 
+type HeadersMap = HashMap HeaderName [ByteString]
+
+-- | Content coding type, e.g. gzip, decompress. See @'encodingsProvided'@.
 type Encoding = CI ByteString
 
+-- | Character set type, e.g. utf-8. See @'charsetsProvided'@.
 type Charset = CI ByteString
 
+-- | Response body type.
 type Body = LB.ByteString
 
 data ReqData m = ReqData
@@ -54,12 +59,14 @@ data ReqData m = ReqData
   , _reqDataRespCharset :: Maybe Charset
   , _reqDataRespEncoding :: Maybe Encoding
   , _reqDataDispPath :: [Text]
-  , _reqDataRespHeaders :: Map HeaderName [ByteString]
+  , _reqDataRespHeaders :: HeadersMap
   , _reqDataRespBody :: Maybe Body
   }
 
 makeFields ''ReqData
 
+-- | A simpler version of the @'WebcrankT'@ transformer which does
+-- not allow for early termination.
 newtype WebcrankT' m a = WebcrankT' { unWebcrankT' :: RWST (Resource m) () (ReqData m) m a }
   deriving
     ( Functor
@@ -78,6 +85,10 @@ instance MonadTrans WebcrankT' where
 data Halt = Halt Status | Error Status (Maybe LB.ByteString)
   deriving (Eq, Show)
 
+-- | Monad transformer that the Webcrank decision process runs in.
+-- Tracks the decisions made so far, handles errors, and allows early
+-- termination. Any resource function can stop processing early with
+-- @'halt'@ or @'werror'@.
 newtype WebcrankT m a = WebcrankT { unWebcrankT :: EitherT Halt (WebcrankT' m) a }
   deriving
     ( Functor
@@ -93,12 +104,30 @@ newtype WebcrankT m a = WebcrankT { unWebcrankT :: EitherT Halt (WebcrankT' m) a
 instance MonadTrans WebcrankT where
   lift = WebcrankT . lift . lift
 
-data Authorized = Authorized | Unauthorized ByteString
+-- | Indicates whether client is authorized to perform the requested
+-- operation on the resource. See @'isAuthorized'@.
+data Authorized
+  = Authorized
+    -- ^ Tells Webcrank that the client is authorized to perform the
+    -- requested operation on the resource.
+  | Unauthorized ByteString
+    -- ^ Tells Webcrank that the client is not authorized to perform
+    -- the operation on the resource. The value is sent in the
+    -- @WWW-Authenticate@ header of the response,
+    -- e.g. @Basic realm="Webcrank"@.
 
+-- | Indicates whether the resource supports multiple character sets
+-- or not.  See @'charsetsProvided'@
 data CharsetsProvided
   = NoCharset
+    -- ^ Indicates that the resource doesn't support any additional
+    -- character sets, all responses from the resource will have the
+    -- same character set, regardless of what the client requests.
   | CharsetsProvided (NonEmpty (Charset, Body -> Body))
+    -- ^ The character sets the resource supports along with functions
+    -- for converting the response body.
 
+-- | Weak or strong entity tags as used in HTTP ETag and If-*-Match headers.
 data ETag = StrongETag ByteString | WeakETag ByteString deriving Eq
 
 instance Show ETag where
@@ -111,12 +140,39 @@ instance RenderHeader ETag where
     StrongETag v -> quotedString v
     WeakETag v -> "W/" <> quotedString v
 
+-- | How @POST@ requests should be treated. See @'postAction'@.
 data PostAction m
   = PostCreate [Text]
+    -- ^ Treat @POST@s as creating new resources and respond
+    -- with @201 Created@, with the given path in the Location header.
   | PostCreateRedir [Text]
+    -- ^ Treat @POST@s as creating new resources and respond with
+    -- @301 See Other@, redirecting the client to the new resource.
   | PostProcess (WebcrankT m ())
+    -- ^ Treat @POST@s as a process which is executed without redirect.
   | PostProcessRedir (WebcrankT m ByteString)
+    -- ^ Treat @POST@s as a process and redirect the client to a
+    -- different (possibly new) resource.
 
+-- | A @Resource@ is a dictionary of functions which are used in the Webcrank
+-- decision process to determine how requests should be handled.
+--
+-- Each function has a type of either @'WebcrankT' m a@ or @'WebcrankT'' m a@.
+-- These monad transformers track the state of the request as it is processed and
+-- a response is generated. The difference between @WebcrankT@ and @WebcrankT'@
+-- is that the former allows for early termination using @'halt'@ or
+-- @'werror'@.
+--
+-- The specified defaults are used by @'resource'@ to create a simple resource.
+-- It won't do anything useful, but it is a starting point. Defining a
+-- simple resource that responds to @GET@ requests would look like
+--
+-- @
+-- myResource = resource { contentTypesProvided = return $ [("text/html", return "Hello world!")] }
+-- @
+--
+-- @'responseWithBody'@ and @'responseWithHtml'@ are
+-- convience functions for creating such simple resources.
 data Resource m = Resource
   { serviceAvailable :: WebcrankT m Bool
     -- ^ @False@ will result in @503 Service Unavailable@. Defaults to @True@.
@@ -132,9 +188,10 @@ data Resource m = Resource
     -- ^ @True@ will result in @400 Bad Request@. Defaults to @False@.
 
   , isAuthorized :: WebcrankT m Authorized
-    -- ^ If this is @NoAuthz@, the response will be @401 Unauthorized@.
-    -- @NoAuthz@ will be used as the challenge WWW-Authenticate header.
-    -- Defaults to @Authz@.
+    -- ^ If @Authorized@, the response will be @401 Unauthorized@.
+    -- @Unauthorized@ will be used as the challenge in the @WWW-Authenticate@
+    -- header, e.g. @Basic realm="Webcrank"@.
+    -- Defaults to @Authorized@.
 
   , forbidden :: WebcrankT m Bool
     -- ^ @True@ will result in @403 Forbidden@. Defaults to @False@.

@@ -7,8 +7,8 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Data.ByteString (ByteString)
-import Data.Map (Map)
-import qualified Data.Map as Map
+import qualified Data.ByteString.Lazy as LB
+import qualified Data.HashMap.Strict as HashMap
 import Data.Maybe
 import Network.HTTP.Media
 import Network.HTTP.Types
@@ -22,43 +22,49 @@ initReqData api = ReqData
   , _reqDataRespMediaType = "application" // "octet-stream"
   , _reqDataRespCharset = Nothing
   , _reqDataRespEncoding = Nothing
-  , _reqDataRespHeaders = Map.empty
+  , _reqDataRespHeaders = HashMap.empty
   , _reqDataRespBody = Nothing
   }
 
 getResponseHeader
-  :: (Functor m, MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  :: (Functor m, MonadState s m, HasRespHeaders s HeadersMap)
   => HeaderName
   -> m (Maybe ByteString)
-getResponseHeader h = (listToMaybe =<<) . Map.lookup h <$> use respHeaders
+getResponseHeader h = (listToMaybe =<<) . HashMap.lookup h <$> use respHeaders
 
 putResponseHeader
-  :: (MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  :: (MonadState s m, HasRespHeaders s HeadersMap)
   => HeaderName
   -> ByteString
   -> m ()
-putResponseHeader h v = respHeaders %= Map.insert h [v]
+putResponseHeader h v = respHeaders %= HashMap.insert h [v]
 
 putResponseHeaders
-  :: (MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  :: (MonadState s m, HasRespHeaders s HeadersMap)
   => ResponseHeaders
   -> m ()
 putResponseHeaders = mapM_ (uncurry putResponseHeader)
 
 removeResponseHeader
-  :: (MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  :: (MonadState s m, HasRespHeaders s HeadersMap)
   => HeaderName
   -> m ()
-removeResponseHeader h = respHeaders %= Map.delete h
+removeResponseHeader h = respHeaders %= HashMap.delete h
 
 getResponseLocation
-  :: (Functor m, MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  :: (Functor m, MonadState s m, HasRespHeaders s HeadersMap)
   => m (Maybe ByteString)
 getResponseLocation = getResponseHeader hLocation
 
 putResponseLocation
-  :: (MonadState s m, HasRespHeaders s (Map HeaderName [ByteString]))
+  :: (MonadState s m, HasRespHeaders s HeadersMap)
   => ByteString
   -> m ()
 putResponseLocation = putResponseHeader hLocation
+
+writeLBS
+  :: (MonadState s m, HasRespBody s (Maybe Body))
+  => LB.ByteString
+  -> m ()
+writeLBS = (respBody ?=)
 

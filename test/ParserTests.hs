@@ -15,7 +15,7 @@ import Test.Tasty
 import Test.Tasty.QuickCheck
 import Test.Tasty.HUnit
 
-import Webcrank.Internal.Parsers
+import Webcrank.Internal
 
 instance Arbitrary ByteString where
   arbitrary = B.pack <$> arbitrary

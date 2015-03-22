@@ -2,11 +2,12 @@
 
 module HandleRequestTests where
 
-import qualified Data.Map as Map
+import qualified Data.HashMap.Strict as HashMap
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Webcrank
+import Webcrank.Internal
 import TestServerAPI
 
 handleRequestTests :: TestTree
@@ -24,7 +25,7 @@ getTest = testCase "GET" $
   let r = resource { contentTypesProvided = return [("plain" // "text", return "webcrank")] }
   in handleTestReq r req @?=
     Res ok200
-      (Map.singleton hContentType ["plain/text"])
+      (HashMap.singleton hContentType ["plain/text"])
       (Just "webcrank")
 
 postTest :: TestTree
@@ -38,11 +39,11 @@ postTest = testCase "POST" $
       }
     rq = req
       { reqMethod = methodPost
-      , reqHeaders = Map.singleton hContentType ["plain/text"]
+      , reqHeaders = HashMap.singleton hContentType ["plain/text"]
       }
   in handleTestReq r rq @?=
     Res created201
-      (Map.fromList [(hLocation, ["http://example.com/new"]), (hContentType, ["plain/text"])])
+      (HashMap.fromList [(hLocation, ["http://example.com/new"]), (hContentType, ["plain/text"])])
       (Just "webcrank")
 
 putTest :: TestTree
@@ -55,11 +56,11 @@ putTest = testCase "PUT" $
       }
     rq = req
       { reqMethod = methodPut
-      , reqHeaders = Map.singleton hContentType ["plain/text"]
+      , reqHeaders = HashMap.singleton hContentType ["plain/text"]
       }
   in handleTestReq r rq @?=
     Res ok200
-      (Map.singleton hContentType ["plain/text"])
+      (HashMap.singleton hContentType ["plain/text"])
       (Just "webcrank")
 
 deleteTest :: TestTree
@@ -72,7 +73,7 @@ deleteTest = testCase "DELETE" $
     rq = req { reqMethod = methodDelete }
   in handleTestReq r rq @?=
     Res noContent204
-      (Map.singleton hContentType ["application/octet-stream"])
+      (HashMap.singleton hContentType ["application/octet-stream"])
       Nothing
 
 notModifiedTest :: TestTree
@@ -83,10 +84,10 @@ notModifiedTest = testCase "Not modified" $
       , generateETag = return $ StrongETag "webcrank"
       , expires = return defaultHTTPDate
       }
-    rq = req { reqHeaders = Map.singleton hIfModifiedSince [ formatHTTPDate defaultHTTPDate ] }
+    rq = req { reqHeaders = HashMap.singleton hIfModifiedSince [ formatHTTPDate defaultHTTPDate ] }
   in handleTestReq r rq @?=
     Res notModified304
-      (Map.fromList [(hETag, ["webcrank"]), (hExpires, [formatHTTPDate defaultHTTPDate])])
+      (HashMap.fromList [(hETag, ["webcrank"]), (hExpires, [formatHTTPDate defaultHTTPDate])])
       Nothing
 
 serviceUnavailableTest :: TestTree

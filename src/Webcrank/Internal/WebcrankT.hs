@@ -21,7 +21,7 @@ runWebcrankT
   -> m (Either Halt a, ReqData m, ())
 runWebcrankT = runWebcrankT' . runEitherT . unWebcrankT
 
-halt :: Monad m => Status -> WebcrankT m ()
+halt :: Monad m => Status -> WebcrankT m a
 halt = WebcrankT . left . Halt
 
 werror :: Monad m => Status -> LB.ByteString -> WebcrankT m a

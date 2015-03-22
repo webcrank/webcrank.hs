@@ -8,24 +8,24 @@ import Control.Monad.Catch.Pure
 import Control.Monad.Reader
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
-import Data.Map (Map)
+import qualified Data.HashMap.Strict as HashMap
 import Data.Maybe
-import qualified Data.Map as Map
 import Network.HTTP.Date
 import Network.HTTP.Types
 
-import Webcrank.Internal
+import Webcrank
+import Webcrank.ServerAPI
 
 data Req = Req
   { reqMethod :: Method
   , reqURI :: ByteString
-  , reqHeaders :: Map HeaderName [ByteString]
+  , reqHeaders :: HeadersMap
   , reqTime :: HTTPDate
   } deriving Show
 
 data Res = Res
   { resStatus :: Status
-  , resHeaders :: Map HeaderName [ByteString]
+  , resHeaders :: HeadersMap
   , resBody :: Maybe LB.ByteString
   } deriving (Show, Eq)
 
@@ -33,7 +33,7 @@ req :: Req
 req = Req
   { reqMethod = methodGet
   , reqURI = "http://example.com"
-  , reqHeaders = Map.empty
+  , reqHeaders = HashMap.empty
   , reqTime = defaultHTTPDate
       { hdYear = 1994
       , hdMonth = 11
@@ -46,7 +46,7 @@ req = Req
   }
 
 res :: Res
-res = Res ok200 Map.empty Nothing
+res = Res ok200 HashMap.empty Nothing
 
 type TestState = CatchT (Reader Req)
 
@@ -54,7 +54,7 @@ testAPI :: ServerAPI TestState
 testAPI = ServerAPI
   { srvGetRequestMethod = asks reqMethod
   , srvGetRequestURI = asks reqURI
-  , srvGetRequestHeader = \h -> asks ((listToMaybe =<<) . Map.lookup h . reqHeaders)
+  , srvGetRequestHeader = \h -> asks ((listToMaybe =<<) . HashMap.lookup h . reqHeaders)
   , srvGetRequestTime = asks reqTime
   }
 

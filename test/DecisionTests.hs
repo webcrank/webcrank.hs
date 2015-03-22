@@ -10,8 +10,7 @@ import Control.Monad.Reader
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
-import Data.Map (Map)
-import qualified Data.Map as Map
+import qualified Data.HashMap.Strict as HashMap
 import Data.Monoid
 import Network.HTTP.Date
 import Network.HTTP.Media
@@ -21,6 +20,7 @@ import Test.Tasty.HUnit
 
 import Webcrank
 import Webcrank.Internal
+import Webcrank.Internal.DecisionCore
 
 import TestServerAPI
 
@@ -114,7 +114,7 @@ b10Tests = decisionTestGroup "b10" "Method allowed?"
   , testCase "False ==> 405 Method Not Allowed" $
       let rq = req { reqMethod = methodPost }
       in afterHdrs b10 resource rq @?=
-        (Error' methodNotAllowed405 Nothing, Map.singleton hAllow ["GET, HEAD"])
+        (Error' methodNotAllowed405 Nothing, HashMap.singleton hAllow ["GET, HEAD"])
   ]
 
 b9Tests :: TestTree
@@ -133,7 +133,7 @@ b8Tests = decisionTestGroup "b8" "Authorized?"
   , testCase "False ==> 401 Unauthorized" $
       let r = resource { isAuthorized = return $ Unauthorized "Basic realm=\"W\"" }
       in afterHdrs b8 r req @?=
-        (Error' unauthorized401 Nothing, Map.singleton hWWWAuthenticate ["Basic realm=\"W\""])
+        (Error' unauthorized401 Nothing, HashMap.singleton hWWWAuthenticate ["Basic realm=\"W\""])
   ]
 
 b7Tests :: TestTree
@@ -178,7 +178,7 @@ b3Tests = decisionTestGroup "b3" "OPTIONS?"
       let
         r = resource { options = return [("X-Tra", "Webcrank")] }
         rq = req { reqMethod = methodOptions }
-      in afterHdrs b3 r rq @?= (Done' ok200, Map.singleton "X-Tra" ["Webcrank"])
+      in afterHdrs b3 r rq @?= (Done' ok200, HashMap.singleton "X-Tra" ["Webcrank"])
   , testCase "False ==> c3" $
       after' b3 resource req @?= Decision' "c3"
   ]
@@ -186,7 +186,7 @@ b3Tests = decisionTestGroup "b3" "OPTIONS?"
 c3Tests :: TestTree
 c3Tests = decisionTestGroup "c3" "Accept exists?"
   [ testCase "True ==> c4 + default media type" $
-      let rq = req { reqHeaders = Map.singleton hAccept ["text/html"] }
+      let rq = req { reqHeaders = HashMap.singleton hAccept ["text/html"] }
       in afterMediaType c3 resource rq @?= (Decision' "c4", "application" // "octet-stream")
   , testCase "False ==> c4 w/o media type" $
       let
@@ -208,7 +208,7 @@ c4Tests = decisionTestGroup "c4" "Acceptable media type available?"
 d4Tests :: TestTree
 d4Tests = decisionTestGroup "d4" "Accept-Language exists?"
   [ testCase "True ==> d5" $
-      let rq = req { reqHeaders = Map.singleton hAcceptLanguage ["en"] }
+      let rq = req { reqHeaders = HashMap.singleton hAcceptLanguage ["en"] }
       in after' d4 resource rq @?= Decision' "d5"
   , testCase "False ==> e5" $
       after' d4 resource req @?= Decision' "e5"
@@ -224,7 +224,7 @@ d5Tests = decisionTestGroup "d5" "Acceptable language available?"
 e5Tests :: TestTree
 e5Tests = decisionTestGroup "e5" "Accept-Charset exists?"
   [ testCase "True ==> e6" $
-      let rq = req { reqHeaders = Map.singleton hAcceptCharset ["utf-8"] }
+      let rq = req { reqHeaders = HashMap.singleton hAcceptCharset ["utf-8"] }
       in after' e5 resource rq @?= Decision' "e6"
   , testCase "False + no charsets provided ==> f6 w/o charset" $
       afterCharset e5 resource req @?= (Decision' "f6", Nothing)
@@ -248,7 +248,7 @@ e6Tests = decisionTestGroup "e6" "Acceptable Charset available?"
 f6Tests :: TestTree
 f6Tests = decisionTestGroup "f6" "Accept-Encoding exists?"
   [ testCase "True ==> f7" $
-      let rq = req { reqHeaders = Map.singleton hAcceptEncoding ["gzip"] }
+      let rq = req { reqHeaders = HashMap.singleton hAcceptEncoding ["gzip"] }
       in after' f6 resource rq @?= Decision' "f7"
   , testCase "False ==> g7" $
       after' f6 resource req @?= Decision' "g7"
@@ -277,7 +277,7 @@ g7Tests = decisionTestGroup "g7" "Resource exists?"
 g8Tests :: TestTree
 g8Tests = decisionTestGroup "g8" "If-Match exists?"
   [ testCase "True ==> g9" $
-      let rq = req { reqHeaders = Map.singleton hIfMatch ["webcrank"] }
+      let rq = req { reqHeaders = HashMap.singleton hIfMatch ["webcrank"] }
       in after' g8 resource rq @?= Decision' "g9"
   , testCase "False ==> h10" $
       after' g8 resource req @?= Decision' "h10"
@@ -288,7 +288,7 @@ g9Tests = decisionTestGroup "g9" "If-Match: * exists?"
   [ testCase "True ==> h10" $
       after' (g9 "*") resource req @?= Decision' "h10"
   , testCase "False ==> g11" $
-      let rq = req { reqHeaders = Map.singleton hIfMatch ["webcrank"] }
+      let rq = req { reqHeaders = HashMap.singleton hIfMatch ["webcrank"] }
       in after' (g9 "webcrank") resource rq @?= Decision' "g11"
   ]
 
@@ -307,7 +307,7 @@ g11Tests = decisionTestGroup "g11" "ETag in If-Match?"
 h7Tests :: TestTree
 h7Tests = decisionTestGroup "h7" "If-Match exists? (no existing resource)"
   [ testCase "True ==> 412 Precondition Failed" $
-      let rq = req { reqHeaders = Map.singleton hIfMatch ["webcrank"] }
+      let rq = req { reqHeaders = HashMap.singleton hIfMatch ["webcrank"] }
       in after' h7 resource rq @?= Error' preconditionFailed412 Nothing
   , testCase "False ==> i7" $
       after' h7 resource req @?= Decision' "i7"
@@ -316,7 +316,7 @@ h7Tests = decisionTestGroup "h7" "If-Match exists? (no existing resource)"
 h10Tests :: TestTree
 h10Tests = decisionTestGroup "h10" "If-Unmodified-Since exists?"
   [ testCase "True ==> h11" $
-      let rq = req { reqHeaders = Map.singleton hIfUnmodifiedSince [dateStr] }
+      let rq = req { reqHeaders = HashMap.singleton hIfUnmodifiedSince [dateStr] }
       in after' h10 resource rq @?= Decision' "h11"
   , testCase "False ==> i12" $
       after' h10 resource req @?= Decision' "i12"
@@ -345,7 +345,7 @@ i4Tests = decisionTestGroup "i4" "Moved permanently? (apply PUT to different URI
       let
         loc = "http://example.com/abc"
         r = resource { movedPermanently = return loc }
-      in afterHdrs i4 r req @?= (Done' movedPermanently301, Map.singleton hLocation [loc])
+      in afterHdrs i4 r req @?= (Done' movedPermanently301, HashMap.singleton hLocation [loc])
   , testCase "False ==> p3" $
       after' i4 resource req @?= Decision' "p3"
   ]
@@ -362,7 +362,7 @@ i7Tests = decisionTestGroup "i7" "PUT?"
 i12Tests :: TestTree
 i12Tests = decisionTestGroup "i12" "If-None-Match exists?"
   [ testCase "True ==> i13" $
-      let rq = req { reqHeaders = Map.singleton hIfNoneMatch ["webcrank"] }
+      let rq = req { reqHeaders = HashMap.singleton hIfNoneMatch ["webcrank"] }
       in after' i12 resource rq @?= Decision' "i13"
   , testCase "False ==> l13" $
       after' i12 resource req @?= Decision' "l13"
@@ -394,7 +394,7 @@ k5Tests = decisionTestGroup "k5" "Moved permanently? (non-PUT variant)"
       let
         uri = "http://example.com/abc"
         r = resource { movedPermanently = return uri }
-      in afterHdrs k5 r req @?= (Done' movedPermanently301, Map.singleton hLocation [uri])
+      in afterHdrs k5 r req @?= (Done' movedPermanently301, HashMap.singleton hLocation [uri])
   , testCase "False ==> l5" $
       after' k5 resource req @?= Decision' "l5"
   ]
@@ -426,7 +426,7 @@ l5Tests = decisionTestGroup "l5" "Moved temporarily?"
       let
         uri = "http://example.com/abc"
         r = resource { movedTemporarily = return uri }
-      in afterHdrs l5 r req @?= (Done' temporaryRedirect307, Map.singleton hLocation [uri])
+      in afterHdrs l5 r req @?= (Done' temporaryRedirect307, HashMap.singleton hLocation [uri])
   , testCase "False ==> m5" $
       after' l5 resource req @?= Decision' "m5"
   ]
@@ -443,7 +443,7 @@ l7Tests = decisionTestGroup "l7" "POST? (no existing resource)"
 l13Tests :: TestTree
 l13Tests = decisionTestGroup "l17" "If-Modified-Since exists?"
   [ testCase "True ==> l14" $
-      let rq = req { reqHeaders = Map.singleton hIfModifiedSince [dateStr] }
+      let rq = req { reqHeaders = HashMap.singleton hIfModifiedSince [dateStr] }
       in after' l13 resource rq @?= Decision' "l14"
   , testCase "False ==> m16" $
       after' l13 resource req @?= Decision' "m16"
@@ -534,9 +534,9 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
           { postAction = return $ PostCreateRedir ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
-        rq = req { reqHeaders = Map.singleton hContentType ["text/html"] }
+        rq = req { reqHeaders = HashMap.singleton hContentType ["text/html"] }
         aft = case after n11 r rq of
-          (d, rd) -> (d, Map.lookup hLocation $_reqDataRespHeaders rd, _reqDataDispPath rd)
+          (d, rd) -> (d, HashMap.lookup hLocation $_reqDataRespHeaders rd, _reqDataDispPath rd)
       in aft @?= (Done' seeOther303, Just ["http://example.com/webcrank"], ["webcrank"])
    , testCase "True + created + no content type accepted ==> 415 Unsupported Media Type" $
       let
@@ -544,30 +544,30 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
           { postAction = return $ PostCreateRedir ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
-        rq = req { reqHeaders = Map.singleton hContentType ["text/plain"] }
+        rq = req { reqHeaders = HashMap.singleton hContentType ["text/plain"] }
       in after' n11 r rq @?= Error' unsupportedMediaType415 Nothing
   , testCase "True + process ==> 303 See Other" $
       let r = resource { postAction = return $ PostProcessRedir $ return "http://example.com/webcrank" }
       in afterHdrs n11 r req @?=
-        (Done' seeOther303, Map.singleton hLocation ["http://example.com/webcrank"])
+        (Done' seeOther303, HashMap.singleton hLocation ["http://example.com/webcrank"])
   , testCase "False + created + content type accepted ==> p11" $
       let
         r = resource
           { postAction = return $ PostCreate ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
-        rq = req { reqHeaders = Map.singleton hContentType ["text/html"] }
+        rq = req { reqHeaders = HashMap.singleton hContentType ["text/html"] }
       in afterHdrs n11 r rq @?=
-        (Decision' "p11", Map.singleton hLocation ["http://example.com/webcrank"])
+        (Decision' "p11", HashMap.singleton hLocation ["http://example.com/webcrank"])
   , testCase "False + created + no content type accepted ==> p11" $
       let
         r = resource
           { postAction = return $ PostCreate ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
-        rq = req { reqHeaders = Map.singleton hContentType ["text/plain"] }
+        rq = req { reqHeaders = HashMap.singleton hContentType ["text/plain"] }
       in afterHdrs n11 r rq @?=
-        (Error' unsupportedMediaType415 Nothing, Map.singleton hLocation ["http://example.com/webcrank"])
+        (Error' unsupportedMediaType415 Nothing, HashMap.singleton hLocation ["http://example.com/webcrank"])
   , testCase "False + process ==> p11" $
       let r = resource { postAction = return $ PostProcess $ return () }
       in after' n11 r req @?= Decision' "p11"
@@ -592,7 +592,7 @@ o14Tests = decisionTestGroup "o14" "Conflict? (resource exists)"
   , testCase "False + acceptable content type ==> p11" $
       let
         r = resource { contentTypesAccepted = return [("text" // "html", return ())] }
-        rq = req { reqHeaders = Map.singleton hContentType ["text/html"] }
+        rq = req { reqHeaders = HashMap.singleton hContentType ["text/html"] }
       in after' o14 r rq @?= Decision' "p11"
   ]
 
@@ -635,7 +635,7 @@ p3Tests = decisionTestGroup "p3" "Conflict? (resource doesn't exist)"
   , testCase "False + acceptable content type ==> p11" $
       let
         r = resource { contentTypesAccepted = return [("text" // "html", return ())] }
-        rq = req { reqHeaders = Map.singleton hContentType ["text/html"] }
+        rq = req { reqHeaders = HashMap.singleton hContentType ["text/html"] }
       in after' p3 r rq @?= Decision' "p11"
   ]
 
@@ -643,7 +643,7 @@ p11Tests :: TestTree
 p11Tests = decisionTestGroup "p11" "New resource?"
   [ testCase "True ==> 201 Created" $
       let
-        loc rd = rd { _reqDataRespHeaders = Map.singleton hLocation ["http://example.com/abc"] }
+        loc rd = rd { _reqDataRespHeaders = HashMap.singleton hLocation ["http://example.com/abc"] }
         aft = fst $ afterWith p11 resource req loc
       in aft @?= Done' created201
   , testCase "False ==> o20" $
@@ -710,7 +710,7 @@ afterHdrs
   :: FlowChart (WebcrankT TestState) Status
   -> Resource TestState
   -> Req
-  -> (Decision', Map HeaderName [ByteString])
+  -> (Decision', HeadersMap)
 afterHdrs s r rq = case after s r rq of
   (d, rd) -> (d, _reqDataRespHeaders rd)
 

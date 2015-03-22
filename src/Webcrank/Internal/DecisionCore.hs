@@ -1,15 +1,9 @@
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Webcrank.Internal.DecisionCore where
 
@@ -31,7 +25,6 @@ import qualified Data.CaseInsensitive as CI
 import Data.Foldable (find, traverse_)
 import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
-import Data.Map (Map)
 import Data.Maybe
 import Data.Text (Text)
 import Network.HTTP.Date
@@ -484,7 +477,7 @@ handleRequest
   :: (Applicative m, MonadCatch m)
   => ServerAPI m
   -> Resource m
-  -> m (Status, Map HeaderName [ByteString], Maybe Body)
+  -> m (Status, HeadersMap, Maybe Body)
 handleRequest api r = run >>= finish where
   run = runWebcrankT' run' r $ initReqData api
   run' = (run'' <* callr finishRequest) `catch` handleError

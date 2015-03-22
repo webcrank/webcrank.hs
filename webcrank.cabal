@@ -28,7 +28,6 @@ library
                   , blaze-builder
                   , bytestring                      >= 0.10.0
                   , case-insensitive                >= 1.0
-                  , containers
                   , either
                   , exceptions
                   , http-date                       >= 0.0.1
@@ -40,6 +39,7 @@ library
                   , semigroups                      >= 0.8.3.1
                   , text                            >= 0.11
                   , transformers                    >= 0.2
+                  , unordered-containers
                   , utf8-string                     >= 0.3.7
 
   ghc-options:
@@ -48,25 +48,23 @@ library
   hs-source-dirs:
                     src
 
-  exposed-modules:
-                    Webcrank
+  exposed-modules:  Webcrank
                     Webcrank.ServerAPI
-
-  other-modules:
                     Webcrank.Internal
                     Webcrank.Internal.DecisionCore
-                    Webcrank.Internal.ETag
+
+  other-modules:    Webcrank.Internal.ETag
                     Webcrank.Internal.Headers
+                    Webcrank.Internal.ServerAPI
                     Webcrank.Internal.Parsers
                     Webcrank.Internal.ReqData
-                    Webcrank.Internal.WebcrankT
-                    Webcrank.Internal.ServerAPI
                     Webcrank.Internal.Types
+                    Webcrank.Internal.WebcrankT
 
 test-suite tests
   type:             exitcode-stdio-1.0
   main-is:          tests.hs
-  hs-source-dirs:   test src
+  hs-source-dirs:   test
   build-depends:
                     QuickCheck
                   , tasty            >= 0.3
@@ -75,20 +73,12 @@ test-suite tests
 
                   , attoparsec                      >= 0.10
                   , base                            >= 4.6 && < 5
-                  , blaze-builder
                   , bytestring                      >= 0.10.0
                   , case-insensitive                >= 1.0
-                  , containers
-                  , either
                   , exceptions
                   , http-date                       >= 0.0.1
                   , http-media                      >= 0.4.0
                   , http-types                      >= 0.8.0
-                  , network-uri                     >= 2.5.0
-                  , lens                            >= 4.5
                   , mtl                             >= 2.0
-                  , semigroups                      >= 0.8.3.1
-                  , text                            >= 0.11
-                  , time                            >= 1.4
-                  , transformers                    >= 0.2
-                  , utf8-string                     >= 0.3.7
+                  , unordered-containers
+                  , webcrank
