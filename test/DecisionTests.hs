@@ -5,6 +5,7 @@
 module DecisionTests where
 
 import Control.Applicative
+import Control.Lens
 import Control.Monad.Catch.Pure
 import Control.Monad.Reader
 import Data.ByteString (ByteString)
@@ -21,6 +22,7 @@ import Test.Tasty.HUnit
 import Webcrank
 import Webcrank.Internal
 import Webcrank.Internal.DecisionCore
+import Webcrank.Internal.Halt
 
 import TestServerAPI
 
@@ -668,55 +670,59 @@ dateStr :: ByteString
 dateStr = formatHTTPDate date
 
 after
-  :: FlowChart (WebcrankT TestState) Status
-  -> Resource TestState
+  :: FlowChart (HaltT TestCrank) Status
+  -> Resource TestCrank
   -> Req
-  -> (Decision', ReqData TestState)
+  -> (Decision', ReqData)
 after s r rq = afterWith s r rq id
 
 afterWith
-  :: FlowChart (WebcrankT TestState) Status
-  -> Resource TestState
+  :: FlowChart (HaltT TestCrank) Status
+  -> Resource TestCrank
   -> Req
-  -> (ReqData TestState -> ReqData TestState)
-  -> (Decision', ReqData TestState)
+  -> (ReqData -> ReqData)
+  -> (Decision', ReqData)
 afterWith s r rq f = run where
-  run = case runReader (runCatchT next) rq of
+  run = case runReader (runCatchT $ step s r f) rq of
     Left e -> error $ show e
     Right a -> a
-  next = do
-    let rd = f $ initReqData testAPI
-    case s of
-      Decision _ a -> do
-        fc <- runWebcrankT a r rd
-        case fc of
-          (Left (Halt sc), rd', _) -> return (Done' sc, rd')
-          (Left (Error sc e), rd', _) -> return (Error' sc e, rd')
-          (Right (Decision l _), rd', _) -> return (Decision' l, rd')
-          (Right (Done a'), rd', _) -> flip fmap (runWebcrankT a' r rd') $ \case
-            (Left (Halt sc), rd'', _) -> (Done' sc, rd'')
-            (Left (Error sc e), rd'', _) -> (Error' sc e, rd'')
-            (Right sc, rd'', _) -> (Done' sc, rd'')
-      Done _ -> error "can't look past end state of flow chart"
+
+step
+  :: FlowChart (HaltT TestCrank) Status
+  -> Resource TestCrank
+  -> (ReqData -> ReqData)
+  -> TestState (Decision', ReqData)
+step s r f = do
+  let rd = f newReqData
+  case s of
+    Decision _ a -> runTestCrank (runHaltT a) r rd >>= \case
+      (Left (Halt sc), rd', _) -> return (Done' sc, rd')
+      (Left (Error sc e), rd', _) -> return (Error' sc e, rd')
+      (Right (Decision l _), rd', _) -> return (Decision' l, rd')
+      (Right (Done a'), rd', _) -> runTestCrank (runHaltT a') r rd' <&> \case
+        (Left (Halt sc), rd'', _) -> (Done' sc, rd'')
+        (Left (Error sc e), rd'', _) -> (Error' sc e, rd'')
+        (Right sc, rd'', _) -> (Done' sc, rd'')
+    Done _ -> error "can't look past end state of flow chart"
 
 after'
-  :: FlowChart (WebcrankT TestState) Status
-  -> Resource TestState
+  :: FlowChart (HaltT TestCrank) Status
+  -> Resource TestCrank
   -> Req
   -> Decision'
 after' s r = fst . after s r
 
 afterHdrs
-  :: FlowChart (WebcrankT TestState) Status
-  -> Resource TestState
+  :: FlowChart (HaltT TestCrank) Status
+  -> Resource TestCrank
   -> Req
   -> (Decision', HeadersMap)
 afterHdrs s r rq = case after s r rq of
   (d, rd) -> (d, _reqDataRespHeaders rd)
 
 afterCharset
-  :: FlowChart (WebcrankT TestState) Status
-  -> Resource TestState
+  :: FlowChart (HaltT TestCrank) Status
+  -> Resource TestCrank
   -> Req
   -> (Decision', Maybe Charset)
 afterCharset s r rq = case after s r rq of

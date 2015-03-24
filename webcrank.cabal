@@ -50,16 +50,18 @@ library
 
   exposed-modules:  Webcrank
                     Webcrank.ServerAPI
+                    Webcrank.ServerAPI.WebcrankT
                     Webcrank.Internal
                     Webcrank.Internal.DecisionCore
+                    Webcrank.Internal.Halt
 
   other-modules:    Webcrank.Internal.ETag
+                    Webcrank.Internal.HandleRequest
                     Webcrank.Internal.Headers
-                    Webcrank.Internal.ServerAPI
                     Webcrank.Internal.Parsers
                     Webcrank.Internal.ReqData
+                    Webcrank.Internal.ResourceData
                     Webcrank.Internal.Types
-                    Webcrank.Internal.WebcrankT
 
 test-suite tests
   type:             exitcode-stdio-1.0
@@ -75,10 +77,12 @@ test-suite tests
                   , base                            >= 4.6 && < 5
                   , bytestring                      >= 0.10.0
                   , case-insensitive                >= 1.0
+                  , either
                   , exceptions
                   , http-date                       >= 0.0.1
                   , http-media                      >= 0.4.0
                   , http-types                      >= 0.8.0
+                  , lens
                   , mtl                             >= 2.0
                   , unordered-containers
                   , webcrank

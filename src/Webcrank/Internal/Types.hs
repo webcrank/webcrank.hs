@@ -53,57 +53,6 @@ type Charset = CI ByteString
 -- | Response body type.
 type Body = LB.ByteString
 
-data ReqData m = ReqData
-  { _reqDataServerAPI :: ServerAPI m
-  , _reqDataRespMediaType :: MediaType
-  , _reqDataRespCharset :: Maybe Charset
-  , _reqDataRespEncoding :: Maybe Encoding
-  , _reqDataDispPath :: [Text]
-  , _reqDataRespHeaders :: HeadersMap
-  , _reqDataRespBody :: Maybe Body
-  }
-
-makeFields ''ReqData
-
--- | A simpler version of the @'WebcrankT'@ transformer which does
--- not allow for early termination.
-newtype WebcrankT' m a = WebcrankT' { unWebcrankT' :: RWST (Resource m) () (ReqData m) m a }
-  deriving
-    ( Functor
-    , Applicative
-    , Monad
-    , MonadIO
-    , MonadReader (Resource m)
-    , MonadState (ReqData m)
-    , MonadThrow
-    , MonadCatch
-    )
-
-instance MonadTrans WebcrankT' where
-  lift = WebcrankT' . lift
-
-data Halt = Halt Status | Error Status (Maybe LB.ByteString)
-  deriving (Eq, Show)
-
--- | Monad transformer that the Webcrank decision process runs in.
--- Tracks the decisions made so far, handles errors, and allows early
--- termination. Any resource function can stop processing early with
--- @'halt'@ or @'werror'@.
-newtype WebcrankT m a = WebcrankT { unWebcrankT :: EitherT Halt (WebcrankT' m) a }
-  deriving
-    ( Functor
-    , Applicative
-    , Monad
-    , MonadIO
-    , MonadReader (Resource m)
-    , MonadState (ReqData m)
-    , MonadThrow
-    , MonadCatch
-    )
-
-instance MonadTrans WebcrankT where
-  lift = WebcrankT . lift . lift
-
 -- | Indicates whether client is authorized to perform the requested
 -- operation on the resource. See @'isAuthorized'@.
 data Authorized
@@ -140,6 +89,23 @@ instance RenderHeader ETag where
     StrongETag v -> quotedString v
     WeakETag v -> "W/" <> quotedString v
 
+data Halt = Halt Status | Error Status (Maybe LB.ByteString)
+  deriving (Eq, Show)
+
+newtype HaltT m a = HaltT { unHaltT :: EitherT Halt m a }
+  deriving
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadTrans
+    , MonadReader r
+    , MonadState s
+    , MonadWriter w
+    , MonadThrow
+    , MonadCatch
+    )
+
 -- | How @POST@ requests should be treated. See @'postAction'@.
 data PostAction m
   = PostCreate [Text]
@@ -148,11 +114,17 @@ data PostAction m
   | PostCreateRedir [Text]
     -- ^ Treat @POST@s as creating new resources and respond with
     -- @301 See Other@, redirecting the client to the new resource.
-  | PostProcess (WebcrankT m ())
+  | PostProcess (HaltT m ())
     -- ^ Treat @POST@s as a process which is executed without redirect.
-  | PostProcessRedir (WebcrankT m ByteString)
+  | PostProcessRedir (HaltT m ByteString)
     -- ^ Treat @POST@s as a process and redirect the client to a
     -- different (possibly new) resource.
+
+data LogData = LogData
+
+instance Monoid LogData where
+  mempty = LogData
+  mappend _ _ = LogData
 
 -- | A @Resource@ is a dictionary of functions which are used in the Webcrank
 -- decision process to determine how requests should be handled.
@@ -174,100 +146,100 @@ data PostAction m
 -- @'responseWithBody'@ and @'responseWithHtml'@ are
 -- convience functions for creating such simple resources.
 data Resource m = Resource
-  { serviceAvailable :: WebcrankT m Bool
+  { serviceAvailable :: HaltT m Bool
     -- ^ @False@ will result in @503 Service Unavailable@. Defaults to @True@.
 
-  , uriTooLong :: WebcrankT m Bool
+  , uriTooLong :: HaltT m Bool
     -- ^ @True@ will result in @414 Request Too Long@. Defaults to @False@.
 
-  , allowedMethods :: WebcrankT' m [Method]
+  , allowedMethods :: m [Method]
     -- ^ If a @Method@ not in this list is requested, then a @405 Method Not
     -- Allowed@ will be sent. Defaults to @GET@ and @HEAD@.
 
-  , malformedRequest :: WebcrankT m Bool
+  , malformedRequest :: HaltT m Bool
     -- ^ @True@ will result in @400 Bad Request@. Defaults to @False@.
 
-  , isAuthorized :: WebcrankT m Authorized
+  , isAuthorized :: HaltT m Authorized
     -- ^ If @Authorized@, the response will be @401 Unauthorized@.
     -- @Unauthorized@ will be used as the challenge in the @WWW-Authenticate@
     -- header, e.g. @Basic realm="Webcrank"@.
     -- Defaults to @Authorized@.
 
-  , forbidden :: WebcrankT m Bool
+  , forbidden :: HaltT m Bool
     -- ^ @True@ will result in @403 Forbidden@. Defaults to @False@.
 
-  , validContentHeaders :: WebcrankT m Bool
+  , validContentHeaders :: HaltT m Bool
     -- ^ @False@ will result in @501 Not Implemented@. Defaults to @True@.
 
-  , knownContentType :: WebcrankT m Bool
+  , knownContentType :: HaltT m Bool
     -- ^ @False@ will result in @415 Unsupported Media Type@. Defaults to
     -- @True@.
 
-  , validEntityLength :: WebcrankT m Bool
+  , validEntityLength :: HaltT m Bool
     -- ^ @False@ will result in @413 Request Entity Too Large@. Defaults to
     -- @True@.
 
-  , options :: WebcrankT' m ResponseHeaders
+  , options :: m ResponseHeaders
     -- ^ If the OPTIONS method is supported and is used, the headers that
     -- should appear in the response.
 
-  , contentTypesProvided :: WebcrankT' m [(MediaType, WebcrankT m Body)]
+  , contentTypesProvided :: m [(MediaType, HaltT m Body)]
     -- ^ Content negotiation is driven by this function. For example, if a
     -- client request includes an @Accept@ header with a value that does not
     -- appear as a @MediaType@ in any of the tuples, then a @406 Not
     -- Acceptable@ will be sent. If there is a matching @MediaType@, that
     -- function is used to create the entity when a response should include one.
 
-  , charsetsProvided :: WebcrankT' m CharsetsProvided
+  , charsetsProvided :: m CharsetsProvided
     -- ^ Used on GET requests to ensure that the entity is in @Charset@.
 
-  , encodingsProvided :: WebcrankT' m [(Encoding, Body -> Body)]
+  , encodingsProvided :: m [(Encoding, Body -> Body)]
     -- ^ Used on GET requests to ensure that the body is encoded.
     -- One useful setting is to have the function check on method, and on GET
     -- requests return @[("identity", id), ("gzip", compress)]@ as this is all
     -- that is needed to support gzip content encoding.
 
-  , resourceExists :: WebcrankT m Bool
+  , resourceExists :: HaltT m Bool
     -- ^ @False@ will result in @404 Not Found@. Defaults to @True@.
 
-  , generateETag :: MaybeT (WebcrankT' m) ETag
+  , generateETag :: MaybeT m ETag
     -- ^ If this returns an @ETag@, it will be used for the ETag header and for
     -- comparison in conditional requests.
 
-  , lastModified :: MaybeT (WebcrankT' m) HTTPDate
+  , lastModified :: MaybeT m HTTPDate
     -- ^ If this returns a @HTTPDate@, it will be used for the Last-Modified header
     -- and for comparison in conditional requests.
 
-  , expires :: MaybeT (WebcrankT' m) HTTPDate
+  , expires :: MaybeT m HTTPDate
     -- ^ If this returns a @HTTPDate@, it will be used for the Expires header.
 
-  , movedPermanently :: MaybeT (WebcrankT m) ByteString
+  , movedPermanently :: MaybeT (HaltT m) ByteString
     -- ^ If this returns a URI, the client will receive a 301 Moved Permanently
     -- with the URI in the Location header.
 
-  , movedTemporarily :: MaybeT (WebcrankT m) ByteString
+  , movedTemporarily :: MaybeT (HaltT m) ByteString
     -- ^ If this returns a URI, the client will receive a 307 Temporary Redirect
     -- with URI in the Location header.
 
-  , previouslyExisted :: WebcrankT m Bool
+  , previouslyExisted :: HaltT m Bool
     -- ^ If this returns @True@, the @movedPermanently@ and @movedTemporarily@
     -- callbacks will be invoked to determine whether the response should be
     -- 301 Moved Permanently, 307 Temporary Redirect, or 410 Gone.
 
-  , allowMissingPost :: WebcrankT m Bool
+  , allowMissingPost :: HaltT m Bool
     -- ^ If the resource accepts POST requests to nonexistent resources, then
     -- this should return @True@. Defaults to @False@.
 
-  , deleteResource :: WebcrankT m Bool
+  , deleteResource :: HaltT m Bool
     -- ^ This is called when a DELETE request should be enacted, and should return
     -- @True@ if the deletion succeeded or has been accepted.
 
-  , deleteCompleted :: WebcrankT m Bool
+  , deleteCompleted :: HaltT m Bool
     -- ^ This is only called after a successful @deleteResource@ call, and should
     -- return @False@ if the deletion was accepted but cannot yet be guaranteed to
     -- have finished.
 
-  , postAction :: WebcrankT' m (PostAction m)
+  , postAction :: m (PostAction m)
     -- ^ If POST requests should be treated as a request to put content into a
     -- (potentially new) resource as opposed to being a generic submission for
     -- processing, then this function should return @PostCreate path@. If it
@@ -275,9 +247,9 @@ data Resource m = Resource
     -- treated much like a PUT to the path entry. Otherwise, if it returns
     -- @PostProcess a@, then the action @a@ will be run.
 
-  , contentTypesAccepted :: WebcrankT' m [(MediaType, WebcrankT m ())]
+  , contentTypesAccepted :: m [(MediaType, HaltT m ())]
 
-  , variances :: WebcrankT' m [HeaderName]
+  , variances :: m [HeaderName]
     -- ^ This function should return a list of strings with header names that
     -- should be included in a given response's Vary header. The standard
     -- conneg headers (Accept, Accept-Encoding, Accept-Charset,
@@ -285,16 +257,34 @@ data Resource m = Resource
     -- the correct elements of those automatically depending on resource
     -- behavior.
 
-  , multipleChoices :: WebcrankT m Bool
+  , multipleChoices :: HaltT m Bool
     -- ^ If this returns @True@, then it is assumed that multiple
     -- representations of the response are possible and a single one cannot
     -- be automatically chosen, so a @300 Multiple Choices@ will be sent
     -- instead of a @200 OK@.
 
-  , isConflict :: WebcrankT' m Bool
+  , isConflict :: m Bool
     -- ^ If this returns @True@, the client will receive a 409 Conflict.
 
-  , finishRequest :: WebcrankT' m ()
+  , finishRequest :: m ()
     -- ^ Called just before the final response is constructed and sent.
   }
+
+data ResourceData m = ResourceData
+  { _resourceDataServerAPI :: ServerAPI m
+  , _resourceDataResource :: Resource m
+  }
+
+makeClassy ''ResourceData
+
+data ReqData = ReqData
+  { _reqDataRespMediaType :: MediaType
+  , _reqDataRespCharset :: Maybe Charset
+  , _reqDataRespEncoding :: Maybe Encoding
+  , _reqDataDispPath :: [Text]
+  , _reqDataRespHeaders :: HeadersMap
+  , _reqDataRespBody :: Maybe Body
+  }
+
+makeClassy ''ReqData
 

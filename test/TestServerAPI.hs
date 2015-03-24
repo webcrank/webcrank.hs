@@ -15,6 +15,7 @@ import Network.HTTP.Types
 
 import Webcrank
 import Webcrank.ServerAPI
+import Webcrank.ServerAPI.WebcrankT
 
 data Req = Req
   { reqMethod :: Method
@@ -49,20 +50,24 @@ res :: Res
 res = Res ok200 HashMap.empty Nothing
 
 type TestState = CatchT (Reader Req)
+type TestCrank = WebcrankT TestState
 
-testAPI :: ServerAPI TestState
+runTestCrank :: TestCrank a -> Resource TestCrank -> ReqData -> TestState (a, ReqData, LogData)
+runTestCrank a r = runWebcrankT a testAPI r
+
+testAPI :: ServerAPI TestCrank
 testAPI = ServerAPI
-  { srvGetRequestMethod = asks reqMethod
-  , srvGetRequestURI = asks reqURI
-  , srvGetRequestHeader = \h -> asks ((listToMaybe =<<) . HashMap.lookup h . reqHeaders)
-  , srvGetRequestTime = asks reqTime
+  { srvGetRequestMethod = lift $ asks reqMethod
+  , srvGetRequestURI = lift $ asks reqURI
+  , srvGetRequestHeader = \h -> lift $ asks ((listToMaybe =<<) . HashMap.lookup h . reqHeaders)
+  , srvGetRequestTime = lift $ asks reqTime
   }
 
-handleTestReq :: Resource TestState -> Req -> Res
+handleTestReq :: Resource TestCrank -> Req -> Res
 handleTestReq r rq = runReader run rq where
   run = handleE <$> run'
   handleE = \case
     Left e -> error $ show e
     Right (s, hs, b) -> Res s hs b
-  run' = runCatchT (handleRequest testAPI r)
+  run' = runCatchT (handleRequest (\a -> runTestCrank a r newReqData))
 

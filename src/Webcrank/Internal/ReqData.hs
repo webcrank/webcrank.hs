@@ -15,10 +15,9 @@ import Network.HTTP.Types
 
 import Webcrank.Internal.Types
 
-initReqData :: ServerAPI m -> ReqData m
-initReqData api = ReqData
-  { _reqDataServerAPI = api
-  , _reqDataDispPath = []
+newReqData :: ReqData
+newReqData = ReqData
+  { _reqDataDispPath = []
   , _reqDataRespMediaType = "application" // "octet-stream"
   , _reqDataRespCharset = Nothing
   , _reqDataRespEncoding = Nothing
@@ -27,44 +26,44 @@ initReqData api = ReqData
   }
 
 getResponseHeader
-  :: (Functor m, MonadState s m, HasRespHeaders s HeadersMap)
+  :: (Functor m, MonadState s m, HasReqData s)
   => HeaderName
   -> m (Maybe ByteString)
-getResponseHeader h = (listToMaybe =<<) . HashMap.lookup h <$> use respHeaders
+getResponseHeader h = (listToMaybe =<<) . HashMap.lookup h <$> use reqDataRespHeaders
 
 putResponseHeader
-  :: (MonadState s m, HasRespHeaders s HeadersMap)
+  :: (MonadState s m, HasReqData s)
   => HeaderName
   -> ByteString
   -> m ()
-putResponseHeader h v = respHeaders %= HashMap.insert h [v]
+putResponseHeader h v = reqDataRespHeaders %= HashMap.insert h [v]
 
 putResponseHeaders
-  :: (MonadState s m, HasRespHeaders s HeadersMap)
+  :: (MonadState s m, HasReqData s)
   => ResponseHeaders
   -> m ()
 putResponseHeaders = mapM_ (uncurry putResponseHeader)
 
 removeResponseHeader
-  :: (MonadState s m, HasRespHeaders s HeadersMap)
+  :: (MonadState s m, HasReqData s)
   => HeaderName
   -> m ()
-removeResponseHeader h = respHeaders %= HashMap.delete h
+removeResponseHeader h = reqDataRespHeaders %= HashMap.delete h
 
 getResponseLocation
-  :: (Functor m, MonadState s m, HasRespHeaders s HeadersMap)
+  :: (Functor m, MonadState s m, HasReqData s)
   => m (Maybe ByteString)
 getResponseLocation = getResponseHeader hLocation
 
 putResponseLocation
-  :: (MonadState s m, HasRespHeaders s HeadersMap)
+  :: (MonadState s m, HasReqData s)
   => ByteString
   -> m ()
 putResponseLocation = putResponseHeader hLocation
 
 writeLBS
-  :: (MonadState s m, HasRespBody s (Maybe Body))
+  :: (MonadState s m, HasReqData s)
   => LB.ByteString
   -> m ()
-writeLBS = (respBody ?=)
+writeLBS = (reqDataRespBody ?=)
 

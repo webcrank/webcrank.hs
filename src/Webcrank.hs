@@ -11,11 +11,13 @@ module Webcrank
   , Authorized(..)
   , ETag(..)
   , PostAction(..)
-    -- * Monad Transformer
-  , WebcrankT
+  , postCreate
+  , postCreateRedir
+  , postProcess
+  , postProcessRedir
+  , HaltT
   , halt
   , werror
-  , WebcrankT'
     -- * Charsets
   , Charset
   , CharsetsProvided(..)
@@ -24,10 +26,8 @@ module Webcrank
   , HeadersMap
   , addResponseHeader
   , putResponseHeader
-  , HasRespHeaders(..)
     -- * Body
   , Body
-  , HasRespBody(..)
   , textBody
   , lazyTextBody
   , strBody
@@ -66,10 +66,10 @@ import Network.HTTP.Date
 import Network.HTTP.Media
 import Network.HTTP.Types
 
+import Webcrank.Internal.Halt
 import Webcrank.Internal.Headers
 import Webcrank.Internal.ReqData
 import Webcrank.Internal.Types
-import Webcrank.Internal.WebcrankT
 
 -- | Builds a @Resource m@ value where all the resource functions will
 -- return default values as described in the @'Resource'@ function
@@ -99,7 +99,7 @@ resource = Resource
   , allowMissingPost = return False
   , deleteResource = return False
   , deleteCompleted = return True
-  , postAction = return $ PostProcess $ return ()
+  , postAction = postProcess $ return ()
   , contentTypesAccepted = return []
   , variances = return []
   , multipleChoices = return False
@@ -108,11 +108,11 @@ resource = Resource
   }
 
 -- | Creates a resource that provides a single content type.
-resourceWithBody :: Monad m => MediaType -> WebcrankT m Body -> Resource m
-resourceWithBody t b = resource { contentTypesProvided = return [(t, b)] }
+resourceWithBody :: Monad m => MediaType -> m Body -> Resource m
+resourceWithBody t b = resource { contentTypesProvided = return [(t, lift b)] }
 
 -- | Creates a resource that provides a @text/html@ content type.
-resourceWithHtml :: Monad m => WebcrankT m Body -> Resource m
+resourceWithHtml :: Monad m => m Body -> Resource m
 resourceWithHtml b = resourceWithBody "text/html" b
 
 -- | Shortcut for @return . CharsetsProvided@
@@ -124,11 +124,31 @@ provideCharsets = return . CharsetsProvided
 
 -- | Add a header to the response.
 addResponseHeader
-  :: (MonadState s m, HasRespHeaders s HeadersMap)
+  :: (MonadState s m, HasReqData s)
   => HeaderName
   -> ByteString
   -> m ()
-addResponseHeader h v = respHeaders %= HashMap.insertWith (<>) h [v]
+addResponseHeader h v = reqDataRespHeaders %= HashMap.insertWith (<>) h [v]
+
+-- | Create a @PostAction@ which performs resource creation without redirecting.
+postCreate :: Monad m => [Text] -> m (PostAction m)
+postCreate = return . PostCreate
+{-# INLINE postCreate #-}
+
+-- | Create a @PostAction@ which performs resource creation and redirects.
+postCreateRedir :: Monad m => [Text] -> m (PostAction m)
+postCreateRedir = return . PostCreateRedir
+{-# INLINE postCreateRedir #-}
+
+-- | Create a @PostAction@ which runs some process and does not redirect.
+postProcess :: Monad m => HaltT m () -> m (PostAction m)
+postProcess = return . PostProcess
+{-# INLINE postProcess #-}
+
+-- | Create a @PostAction@ which runs some process and does redirects.
+postProcessRedir :: Monad m => HaltT m ByteString -> m (PostAction m)
+postProcessRedir = return . PostProcessRedir
+{-# INLINE postProcessRedir #-}
 
 -- | Create a response @Body@ from strict @Text@.
 textBody :: Text -> Body
@@ -147,9 +167,9 @@ strBody = lazyTextBody . LT.pack
 
 -- | Set the response body from a @String@
 writeStr
-  :: (MonadState s m, HasRespBody s (Maybe Body))
+  :: (MonadState s m, HasReqData s)
   => String
   -> m ()
-writeStr = assign respBody . Just . strBody
+writeStr = assign reqDataRespBody . Just . strBody
 {-# INLINE writeStr #-}
 
