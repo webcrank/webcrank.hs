@@ -76,7 +76,7 @@ data CharsetsProvided
     -- ^ The character sets the resource supports along with functions
     -- for converting the response body.
 
--- | Weak or strong entity tags as used in HTTP ETag and If-*-Match headers.
+-- | Weak or strong entity tags as used in HTTP ETag and @If-*-Match@ headers.
 data ETag = StrongETag ByteString | WeakETag ByteString deriving Eq
 
 instance Show ETag where
@@ -89,9 +89,12 @@ instance RenderHeader ETag where
     StrongETag v -> quotedString v
     WeakETag v -> "W/" <> quotedString v
 
-data Halt = Halt Status | Error Status (Maybe LB.ByteString)
+data Halt = Halt Status | Error Status LB.ByteString
   deriving (Eq, Show)
 
+-- | Monad transformer for @'Resource'@ functions which can halt the request
+-- processing early with an error or some other response. Values are created with
+-- the smart constructors @'werror'@ and @'halt'@.
 newtype HaltT m a = HaltT { unHaltT :: EitherT Halt m a }
   deriving
     ( Functor
@@ -129,22 +132,21 @@ instance Monoid LogData where
 -- | A @Resource@ is a dictionary of functions which are used in the Webcrank
 -- decision process to determine how requests should be handled.
 --
--- Each function has a type of either @'WebcrankT' m a@ or @'WebcrankT'' m a@.
--- These monad transformers track the state of the request as it is processed and
--- a response is generated. The difference between @WebcrankT@ and @WebcrankT'@
--- is that the former allows for early termination using @'halt'@ or
+-- Each function has a type of either @m a@ or @'HaltT' m a@.
+-- A resource function which yields a @HaltT m a@ value allows the function
+-- to terminate the request processing early using @'halt'@ or
 -- @'werror'@.
 --
--- The specified defaults are used by @'resource'@ to create a simple resource.
--- It won't do anything useful, but it is a starting point. Defining a
--- simple resource that responds to @GET@ requests would look like
+-- The defaults documented are used by the @'resource'@ smart constructor.
+-- A resource that responds to @GET@ requests with an HTML response would be
+-- written as
 --
 -- @
 -- myResource = resource { contentTypesProvided = return $ [("text/html", return "Hello world!")] }
 -- @
 --
--- @'responseWithBody'@ and @'responseWithHtml'@ are
--- convience functions for creating such simple resources.
+-- @'responseWithBody'@ and @'responseWithHtml'@ are additional
+-- smart constructors useful creating resources.
 data Resource m = Resource
   { serviceAvailable :: HaltT m Bool
     -- ^ @False@ will result in @503 Service Unavailable@. Defaults to @True@.
@@ -154,7 +156,7 @@ data Resource m = Resource
 
   , allowedMethods :: m [Method]
     -- ^ If a @Method@ not in this list is requested, then a @405 Method Not
-    -- Allowed@ will be sent. Defaults to @GET@ and @HEAD@.
+    -- Allowed@ will be sent. Defaults to @["GET", "HEAD"]@.
 
   , malformedRequest :: HaltT m Bool
     -- ^ @True@ will result in @400 Bad Request@. Defaults to @False@.
@@ -181,7 +183,7 @@ data Resource m = Resource
 
   , options :: m ResponseHeaders
     -- ^ If the OPTIONS method is supported and is used, the headers that
-    -- should appear in the response.
+    -- should appear in the response. Defaults to @[]@.
 
   , contentTypesProvided :: m [(MediaType, HaltT m Body)]
     -- ^ Content negotiation is driven by this function. For example, if a
@@ -189,42 +191,47 @@ data Resource m = Resource
     -- appear as a @MediaType@ in any of the tuples, then a @406 Not
     -- Acceptable@ will be sent. If there is a matching @MediaType@, that
     -- function is used to create the entity when a response should include one.
+    -- Defaults to @[]@.
 
   , charsetsProvided :: m CharsetsProvided
     -- ^ Used on GET requests to ensure that the entity is in @Charset@.
+    -- Defaults to @NoCharset@.
 
   , encodingsProvided :: m [(Encoding, Body -> Body)]
     -- ^ Used on GET requests to ensure that the body is encoded.
     -- One useful setting is to have the function check on method, and on GET
     -- requests return @[("identity", id), ("gzip", compress)]@ as this is all
-    -- that is needed to support gzip content encoding.
+    -- that is needed to support gzip content encoding. Defaults to
+    -- @[]@.
 
   , resourceExists :: HaltT m Bool
     -- ^ @False@ will result in @404 Not Found@. Defaults to @True@.
 
   , generateETag :: MaybeT m ETag
     -- ^ If this returns an @ETag@, it will be used for the ETag header and for
-    -- comparison in conditional requests.
+    -- comparison in conditional requests. Defaults to @mzero@.
 
   , lastModified :: MaybeT m HTTPDate
     -- ^ If this returns a @HTTPDate@, it will be used for the Last-Modified header
-    -- and for comparison in conditional requests.
+    -- and for comparison in conditional requests. Defaults to @mzero@.
 
   , expires :: MaybeT m HTTPDate
     -- ^ If this returns a @HTTPDate@, it will be used for the Expires header.
+    -- Defaults to @mzero@.
 
   , movedPermanently :: MaybeT (HaltT m) ByteString
     -- ^ If this returns a URI, the client will receive a 301 Moved Permanently
-    -- with the URI in the Location header.
+    -- with the URI in the Location header. Defaults to @mzero@.
 
   , movedTemporarily :: MaybeT (HaltT m) ByteString
     -- ^ If this returns a URI, the client will receive a 307 Temporary Redirect
-    -- with URI in the Location header.
+    -- with URI in the Location header. Defaults to @mzero@.
 
   , previouslyExisted :: HaltT m Bool
     -- ^ If this returns @True@, the @movedPermanently@ and @movedTemporarily@
     -- callbacks will be invoked to determine whether the response should be
-    -- 301 Moved Permanently, 307 Temporary Redirect, or 410 Gone.
+    -- 301 Moved Permanently, 307 Temporary Redirect, or 410 Gone. Defaults
+    -- to @False@.
 
   , allowMissingPost :: HaltT m Bool
     -- ^ If the resource accepts POST requests to nonexistent resources, then
@@ -232,12 +239,13 @@ data Resource m = Resource
 
   , deleteResource :: HaltT m Bool
     -- ^ This is called when a DELETE request should be enacted, and should return
-    -- @True@ if the deletion succeeded or has been accepted.
+    -- @True@ if the deletion succeeded or has been accepted. Defaults to
+    -- @True@.
 
   , deleteCompleted :: HaltT m Bool
     -- ^ This is only called after a successful @deleteResource@ call, and should
     -- return @False@ if the deletion was accepted but cannot yet be guaranteed to
-    -- have finished.
+    -- have finished. Defaults to @True@.
 
   , postAction :: m (PostAction m)
     -- ^ If POST requests should be treated as a request to put content into a
@@ -245,9 +253,14 @@ data Resource m = Resource
     -- processing, then this function should return @PostCreate path@. If it
     -- does return @PostCreate path@, then the rest of the request will be
     -- treated much like a PUT to the path entry. Otherwise, if it returns
-    -- @PostProcess a@, then the action @a@ will be run.
+    -- @PostProcess a@, then the action @a@ will be run. Defaults to
+    -- @PostProcess $ return ()@.
 
   , contentTypesAccepted :: m [(MediaType, HaltT m ())]
+    -- ^ This is used similarly to @contentTypesProvided@, except that it is
+    -- for incoming resource representations -- for example, @PUT@ requests.
+    -- Handler functions usually want to use server specific functions to
+    -- access the incoming request body. Defaults to @[]@.
 
   , variances :: m [HeaderName]
     -- ^ This function should return a list of strings with header names that
@@ -255,21 +268,24 @@ data Resource m = Resource
     -- conneg headers (Accept, Accept-Encoding, Accept-Charset,
     -- Accept-Language) do not need to be specified here as Webcrank will add
     -- the correct elements of those automatically depending on resource
-    -- behavior.
+    -- behavior. Defaults to @[]@.
 
   , multipleChoices :: HaltT m Bool
     -- ^ If this returns @True@, then it is assumed that multiple
     -- representations of the response are possible and a single one cannot
     -- be automatically chosen, so a @300 Multiple Choices@ will be sent
-    -- instead of a @200 OK@.
+    -- instead of a @200 OK@. Defaults to @False@.
 
   , isConflict :: m Bool
     -- ^ If this returns @True@, the client will receive a 409 Conflict.
+    -- Defaults to @False@.
 
   , finishRequest :: m ()
     -- ^ Called just before the final response is constructed and sent.
   }
 
+-- | A wrapper for the @'ServerAPI'@ and @'Resource'@ that should be used
+-- to process requests to a path.
 data ResourceData m = ResourceData
   { _resourceDataServerAPI :: ServerAPI m
   , _resourceDataResource :: Resource m
@@ -277,6 +293,8 @@ data ResourceData m = ResourceData
 
 makeClassy ''ResourceData
 
+-- | Container used to keep track of the decision state and what is known
+-- about response while processing a request.
 data ReqData = ReqData
   { _reqDataRespMediaType :: MediaType
   , _reqDataRespCharset :: Maybe Charset

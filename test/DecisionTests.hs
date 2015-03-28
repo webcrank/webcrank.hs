@@ -90,7 +90,7 @@ b13Tests = decisionTestGroup "b13" "Service available?"
       after' b13 resource req @?= Decision' "b12"
   , testCase "False ==> 503 Service Unavailable" $
       let r = resource { serviceAvailable = return False }
-      in after' b13 r req @?= Error' serviceUnavailable503 Nothing
+      in after' b13 r req @?= error' serviceUnavailable503
   ]
 
 b12Tests :: TestTree
@@ -98,13 +98,13 @@ b12Tests = decisionTestGroup "b12" "Known method?" ts where
   ts = mk <$> ms
   mk (m, r) = testCase (mconcat [show m, " ==> ", show r]) $
     after' b12 resource (req { reqMethod = m }) @?= r
-  ms = ("QWERTY", Error' notImplemented501 Nothing) : ((, Decision' "b11") <$> [methodGet, methodHead, methodPost, methodPut, methodDelete, methodTrace, methodConnect, methodOptions])
+  ms = ("QWERTY", error' notImplemented501) : ((, Decision' "b11") <$> [methodGet, methodHead, methodPost, methodPut, methodDelete, methodTrace, methodConnect, methodOptions])
 
 b11Tests :: TestTree
 b11Tests = decisionTestGroup "b11" "URI too long?"
   [ testCase "True ==> 414 Request-URI Too Long" $
       let r = resource { uriTooLong = return True }
-      in after' b11 r req @?= Error' requestURITooLong414 Nothing
+      in after' b11 r req @?= error' requestURITooLong414
   , testCase "False ==> b11" $
       after' b11 resource req @?= Decision' "b10"
  ]
@@ -116,14 +116,14 @@ b10Tests = decisionTestGroup "b10" "Method allowed?"
   , testCase "False ==> 405 Method Not Allowed" $
       let rq = req { reqMethod = methodPost }
       in afterHdrs b10 resource rq @?=
-        (Error' methodNotAllowed405 Nothing, HashMap.singleton hAllow ["GET, HEAD"])
+        (error' methodNotAllowed405, HashMap.singleton hAllow ["GET, HEAD"])
   ]
 
 b9Tests :: TestTree
 b9Tests = decisionTestGroup "b9" "Malformed?"
   [ testCase "True ==> 400 Malformed Request" $
       let r = resource { malformedRequest = return True }
-      in after' b9 r req @?= Error' badRequest400 Nothing
+      in after' b9 r req @?= error' badRequest400
   , testCase "False ==> b8" $
       after' b9 resource req @?= Decision' "b8"
  ]
@@ -135,14 +135,14 @@ b8Tests = decisionTestGroup "b8" "Authorized?"
   , testCase "False ==> 401 Unauthorized" $
       let r = resource { isAuthorized = return $ Unauthorized "Basic realm=\"W\"" }
       in afterHdrs b8 r req @?=
-        (Error' unauthorized401 Nothing, HashMap.singleton hWWWAuthenticate ["Basic realm=\"W\""])
+        (error' unauthorized401, HashMap.singleton hWWWAuthenticate ["Basic realm=\"W\""])
   ]
 
 b7Tests :: TestTree
 b7Tests = decisionTestGroup "b7" "Forbidden?"
   [ testCase "True ==> 403 Forbidden" $
       let r = resource { forbidden = return True }
-      in after' b7 r req @?= Error' forbidden403 Nothing
+      in after' b7 r req @?= error' forbidden403
   , testCase "False ==> b6" $
       after' b7 resource req @?= Decision' "b6"
  ]
@@ -153,7 +153,7 @@ b6Tests = decisionTestGroup "b6" "Okay Content-* Headers?"
       after' b6 resource req @?= Decision' "b5"
   , testCase "False ==> 501 Not Implemented" $
     let r = resource { validContentHeaders = return False }
-    in after' b6 r req @?= Error' notImplemented501 Nothing
+    in after' b6 r req @?= error' notImplemented501
   ]
 
 b5Tests :: TestTree
@@ -162,7 +162,7 @@ b5Tests = decisionTestGroup "b5" "Known Content-Type?"
       after' b5 resource req @?= Decision' "b4"
   , testCase "False ==> 415 Unsupported Media Type" $
       let r = resource { knownContentType = return False }
-      in after' b5 r req @?= Error' unsupportedMediaType415 Nothing
+      in after' b5 r req @?= error' unsupportedMediaType415
   ]
 
 b4Tests :: TestTree
@@ -171,7 +171,7 @@ b4Tests = decisionTestGroup "b4" "Req Entity Too Large?"
       after' b4 resource req @?= Decision' "b3"
   , testCase "False ==> 413 Request Entity Too Large" $
       let r = resource { validEntityLength = return False }
-      in after' b4 r req @?= Error' requestEntityTooLarge413 Nothing
+      in after' b4 r req @?= error' requestEntityTooLarge413
   ]
 
 b3Tests :: TestTree
@@ -204,7 +204,7 @@ c4Tests = decisionTestGroup "c4" "Acceptable media type available?"
       let r = resource { contentTypesProvided = return [("text" // "html", return "")] }
       in after' (c4 "text/html") r req @?= Decision' "d4"
   , testCase "False ==> 406 Not Acceptable" $
-      after' (c4 "text/html") resource req @?= Error' notAcceptable406 (Just "No acceptable media type available")
+      after' (c4 "text/html") resource req @?= Error' notAcceptable406 "No acceptable media type available"
   ]
 
 d4Tests :: TestTree
@@ -244,7 +244,7 @@ e6Tests = decisionTestGroup "e6" "Acceptable Charset available?"
       afterCharset (e6 "utf-8") resource req @?= (Decision' "f6", Nothing)
   , testCase "False ==> 406 Not Acceptable" $
       let r = resource { charsetsProvided = provideCharsets $ return ("wtf-9", id) }
-      in after' (e6 "utf-8") r req @?= Error' notAcceptable406 (Just "No acceptable charset available")
+      in after' (e6 "utf-8") r req @?= Error' notAcceptable406 "No acceptable charset available"
   ]
 
 f6Tests :: TestTree
@@ -300,17 +300,17 @@ g11Tests = decisionTestGroup "g11" "ETag in If-Match?"
       let r = resource { generateETag = return $ StrongETag "webcrank" }
       in after' (g11 "\"webcrank\"") r req @?= Decision' "h10"
   , testCase "False (no ETag) ==> 412 Precondition Failed" $
-      after' (g11 "\"webcrank\"") resource req @?= Error' preconditionFailed412 Nothing
+      after' (g11 "\"webcrank\"") resource req @?= error' preconditionFailed412
   , testCase "False (mismatch ETag) ==> 412 Precondition Failed" $
       let r = resource { generateETag = return $ StrongETag "webcrank123" }
-      in after' (g11 "\"webcrank456\"") r req @?= Error' preconditionFailed412 Nothing
+      in after' (g11 "\"webcrank456\"") r req @?= error' preconditionFailed412
   ]
 
 h7Tests :: TestTree
 h7Tests = decisionTestGroup "h7" "If-Match exists? (no existing resource)"
   [ testCase "True ==> 412 Precondition Failed" $
       let rq = req { reqHeaders = HashMap.singleton hIfMatch ["webcrank"] }
-      in after' h7 resource rq @?= Error' preconditionFailed412 Nothing
+      in after' h7 resource rq @?= error' preconditionFailed412
   , testCase "False ==> i7" $
       after' h7 resource req @?= Decision' "i7"
   ]
@@ -335,7 +335,7 @@ h11Tests = decisionTestGroup "h11" "If-Unmodified-Since is valid date?"
 h12Tests :: TestTree
 h12Tests = decisionTestGroup "h12" "Last-Modified > If-Unmodified-Since?"
   [ testCase "True ==> 412 Precondition Failed" $
-      after' (h12 $ date { hdDay = 10 }) r req @?= Error' preconditionFailed412 Nothing
+      after' (h12 $ date { hdDay = 10 }) r req @?= error' preconditionFailed412
   , testCase "False ==> i12" $
       after' (h12 $ date { hdDay = 20 }) r req @?= Decision' "i12"
   ] where
@@ -387,7 +387,7 @@ j18Tests = decisionTestGroup "j18" "GET or HEAD? (resource exists)"
       in after' j18 resource rq @?= Done' notModified304
   , testCase "False ==> 412 Precondition Failed" $
       let rq = req { reqMethod = methodPost }
-      in after' j18 resource rq @?= Error' preconditionFailed412 Nothing
+      in after' j18 resource rq @?= error' preconditionFailed412
   ]
 
 k5Tests :: TestTree
@@ -439,7 +439,7 @@ l7Tests = decisionTestGroup "l7" "POST? (no existing resource)"
       let rq = req { reqMethod = methodPost }
       in after' l7 resource rq @?= Decision' "m7"
   , testCase "False ==> 404 Not Found" $
-      after' l7 resource req @?= Error' notFound404 Nothing
+      after' l7 resource req @?= error' notFound404
   ]
 
 l13Tests :: TestTree
@@ -486,7 +486,7 @@ m5Tests = decisionTestGroup "m5" "POST? (resource previously existed)"
       let rq = req { reqMethod = methodPost }
       in after' m5 resource rq @?= Decision' "n5"
   , testCase "False ==> 410 Gone" $
-      after' m5 resource req @?= Error' gone410 Nothing
+      after' m5 resource req @?= error' gone410
   ]
 
 m7Tests :: TestTree
@@ -495,7 +495,7 @@ m7Tests = decisionTestGroup "m7" "Server allows POST to missing resource?"
       let r = resource { allowMissingPost = return True }
       in after' m7 r req @?= Decision' "n11"
   , testCase "False ==> 404 Not Found" $
-      after' m7 resource req @?= Error' notFound404 Nothing
+      after' m7 resource req @?= error' notFound404
   ]
 
 m16Tests :: TestTree
@@ -516,7 +516,7 @@ m20Tests = decisionTestGroup "m20" "Delete enacted?"
       let r = resource { deleteResource = return True, deleteCompleted = return False }
       in after' m20 r req @?= Done' accepted202
   , testCase "False ==> 500 Internal Server Error" $
-      after' m20 resource req @?= Error' internalServerError500 Nothing
+      after' m20 resource req @?= error' internalServerError500
   ]
 
 n5Tests :: TestTree
@@ -525,7 +525,7 @@ n5Tests = decisionTestGroup "n5" "Server allows POST to missing resource? (resou
       let r = resource { allowMissingPost = return True }
       in after' n5 r req @?= Decision' "n11"
   , testCase "False ==> 410 Gone" $
-      after' n5 resource req @?= Error' gone410 Nothing
+      after' n5 resource req @?= error' gone410
   ]
 
 n11Tests :: TestTree
@@ -547,7 +547,7 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
         rq = req { reqHeaders = HashMap.singleton hContentType ["text/plain"] }
-      in after' n11 r rq @?= Error' unsupportedMediaType415 Nothing
+      in after' n11 r rq @?= error' unsupportedMediaType415
   , testCase "True + process ==> 303 See Other" $
       let r = resource { postAction = return $ PostProcessRedir $ return "http://example.com/webcrank" }
       in afterHdrs n11 r req @?=
@@ -569,7 +569,7 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
           }
         rq = req { reqHeaders = HashMap.singleton hContentType ["text/plain"] }
       in afterHdrs n11 r rq @?=
-        (Error' unsupportedMediaType415 Nothing, HashMap.singleton hLocation ["http://example.com/webcrank"])
+        (error' unsupportedMediaType415, HashMap.singleton hLocation ["http://example.com/webcrank"])
   , testCase "False + process ==> p11" $
       let r = resource { postAction = return $ PostProcess $ return () }
       in after' n11 r req @?= Decision' "p11"
@@ -588,9 +588,9 @@ o14Tests :: TestTree
 o14Tests = decisionTestGroup "o14" "Conflict? (resource exists)"
   [ testCase "True ==> 409 Conflict" $
       let r = resource { isConflict = return True }
-      in after' o14 r req @?= Error' conflict409 Nothing
+      in after' o14 r req @?= error' conflict409
   , testCase "False + no acceptable content type ==> 415 Unsupported Media Type" $
-      after' o14 resource req @?= Error' unsupportedMediaType415 Nothing
+      after' o14 resource req @?= error' unsupportedMediaType415
   , testCase "False + acceptable content type ==> p11" $
       let
         r = resource { contentTypesAccepted = return [("text" // "html", return ())] }
@@ -631,9 +631,9 @@ p3Tests :: TestTree
 p3Tests = decisionTestGroup "p3" "Conflict? (resource doesn't exist)"
   [ testCase "True ==> 409 Conflict" $
       let r = resource { isConflict = return True }
-      in after' p3 r req @?= Error' conflict409 Nothing
+      in after' p3 r req @?= error' conflict409
   , testCase "False + no acceptable content types ==> 415 Unsupported Media Type" $
-      after' p3 resource req @?= Error' unsupportedMediaType415 Nothing
+      after' p3 resource req @?= error' unsupportedMediaType415
   , testCase "False + acceptable content type ==> p11" $
       let
         r = resource { contentTypesAccepted = return [("text" // "html", return ())] }
@@ -729,10 +729,13 @@ afterCharset s r rq = case after s r rq of
   (d, rd) -> (d, _reqDataRespCharset rd)
 
 data Decision'
-  = Error' Status (Maybe LB.ByteString)
+  = Error' Status LB.ByteString
   | Done' Status
   | Decision' String
   deriving Eq
+
+error' :: Status -> Decision'
+error' s = Error' s (LB.fromStrict $ statusMessage s)
 
 instance Show Decision' where
   show = \case
@@ -741,7 +744,7 @@ instance Show Decision' where
       , " "
       , B.unpack $ statusMessage sc
       , " - "
-      , show (B.unpack . LB.toStrict <$> e)
+      , show . B.unpack . LB.toStrict $ e
       ]
     Done' sc -> mconcat [show $ statusCode sc, " ", B.unpack $ statusMessage sc ]
     Decision' l -> l

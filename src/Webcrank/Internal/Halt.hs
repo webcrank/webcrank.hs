@@ -12,15 +12,18 @@ runHaltT :: HaltT m a -> m (Either Halt a)
 runHaltT = runEitherT . unHaltT
 {-# INLINE runHaltT #-}
 
+-- | Immediately end processing of the request, returning the response
+-- @Status@. It is the responsibility of the resource to ensure that all
+-- necessary response header and body elements have been added in
+-- order to make that response code valid.
 halt :: Monad m => Status -> HaltT m a
 halt = HaltT . left . Halt
 {-# INLINE halt #-}
 
-werror :: Monad m => Status -> LB.ByteString -> HaltT m a
-werror s = HaltT . left . Error s . Just
+-- | Immediately end processing of this request, returning a
+-- @500 Internal Server Error@ response. The response body will contain the
+-- reason.
+werror :: Monad m => LB.ByteString -> HaltT m a
+werror = HaltT . left . Error internalServerError500
 {-# INLINE werror #-}
-
-werror' :: Monad m => Status -> HaltT m a
-werror' = HaltT . left . flip Error Nothing
-{-# INLINE werror' #-}
 

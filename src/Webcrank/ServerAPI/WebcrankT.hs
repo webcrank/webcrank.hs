@@ -9,10 +9,14 @@ import Control.Monad.RWS
 
 import Webcrank.Internal.Types
 
--- | Monad transformer can be used by server API providers as part of
--- their stack.
--- Provides tracking of the request state and logging of the decisions
--- made so far.
+-- | Monad transformer that can be used by server API providers.
+-- Provides tracking of the request state and logging of the
+-- decisions made so far. For example
+--
+-- @
+-- type WaiCrank m a = ReaderT (Request, HTTPDate) (WebcrankT m) a
+-- @
+--
 newtype WebcrankT m a =
   WebcrankT { unWebcrankT :: RWST (ResourceData (WebcrankT m)) LogData ReqData m a }
   deriving

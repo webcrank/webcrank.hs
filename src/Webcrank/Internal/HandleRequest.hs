@@ -15,7 +15,6 @@ import Control.Monad.Trans.Maybe
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString.Lazy.UTF8 as LB
 import Data.Foldable (traverse_)
-import Data.Maybe
 import Network.HTTP.Media
 import Network.HTTP.Types
 
@@ -26,9 +25,25 @@ import Webcrank.Internal.Types
 import Webcrank.Internal.ReqData
 import Webcrank.Internal.ResourceData
 
+-- | Process a request according to the webmachine state diagram. Intended for
+-- use by server API providers. @run@ is a function which can run process to
+-- completion.
+--
+-- @'Webcrank.ServerAPI.WebcrankT'@ is provided as a starting point. For the type
+--
+-- @
+-- type WaiCrank = ReaderT (Request, HTTPDate) (WebcrankT IO)
+-- @
+--
+-- an appropriate @run@ function would be
+--
+-- @
+-- run :: Resource WaiCrank -> Request -> HTTPDate -> WaiCrank a -> IO (a, ReqData, LogData)
+-- run resource req date wa = runReaderT (runWebcrankT wa (ResourceData api resource) newReqData) (req, date)
+-- @
 handleRequest
   :: (Applicative m, MonadReader r m, HasResourceData r m, MonadState s m, HasReqData s, MonadCatch m, Functor n)
-  => (forall a. m a -> n (a, ReqData, LogData))
+  => (forall a. m a -> n (a, ReqData, LogData)) -- ^ run
   -> n (Status, HeadersMap, Maybe Body)
 handleRequest run = run handler <&> finish where
   handler = (decisionCore <* callr'' finishRequest) `catch` handleError
@@ -46,7 +61,7 @@ prepResponse
   => Status
   -> m ()
 prepResponse s = case statusCode s of
-  c | c >= 400 && c < 600 -> prepError s Nothing
+  c | c >= 400 && c < 600 -> prepError s (LB.fromStrict $ statusMessage s)
   304 -> do
     removeResponseHeader hContentType
     reqDataRespBody .= Nothing
@@ -59,7 +74,7 @@ prepResponse s = case statusCode s of
 prepError
   :: (Applicative m, MonadReader r m, HasResourceData r m, MonadState s m, HasReqData s)
   => Status
-  -> Maybe LB.ByteString
+  -> LB.ByteString
   -> m ()
 prepError s r = assign reqDataRespBody . Just =<< encodeBody' =<< renderError s r
 
@@ -67,27 +82,32 @@ handleError
   :: (Applicative m, MonadReader r m, HasResourceData r m, MonadState s m, HasReqData s)
   => SomeException
   -> m Status
-handleError = (internalServerError500 <$) . prepError internalServerError500 . Just . LB.fromString . show
+handleError = (internalServerError500 <$) . prepError internalServerError500 . LB.fromString . show
 
 renderError
   :: (Applicative m, MonadReader r m, HasResourceData r m, MonadState s m, HasReqData s)
   => Status
-  -> Maybe LB.ByteString
+  -> LB.ByteString
   -> m Body
 renderError s reason = maybe (render s reason) return =<< use reqDataRespBody where
 
-render :: (Functor m, HasReqData s, HasResourceData r m, MonadReader r m, MonadState s m) => Status -> Maybe LB.ByteString -> m LB.ByteString
+render
+  :: (Functor m, HasReqData s, HasResourceData r m, MonadReader r m, MonadState s m)
+  => Status
+  -> LB.ByteString
+  -> m LB.ByteString
 render s reason =  putResponseHeader hContentType "text/html" >> (errorBody s reason)
 
-reason' :: Status -> Maybe LB.ByteString -> LB.ByteString
-reason' s reason = fromMaybe (LB.fromStrict $ statusMessage s) reason
-
-errorBody :: (Functor m, HasResourceData r m, MonadReader r m) => Status -> Maybe LB.ByteString -> m LB.ByteString
+errorBody
+  :: (Functor m, HasResourceData r m, MonadReader r m)
+  => Status
+  -> LB.ByteString
+  -> m LB.ByteString
 errorBody s reason = case statusCode s of
     404 -> return "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>The requested document was not found on this server.<p><hr><address>webcrank web server</address></body></html>"
     500 -> return $ mconcat
       [ "<html><head><title>500 Internal Server Error</title></head><body><h1>Internal Server Error</h1>The server encountered an error while processing this request:<br><pre>"
-      , reason' s reason
+      , reason
       , "</pre><p><hr><address>webcrank web server</address></body></html>"
       ]
     501 -> getRequestMethod' <&> \m -> mconcat
@@ -104,7 +124,7 @@ errorBody s reason = case statusCode s of
       , BB.fromByteString "</title></head><body><h1>"
       , BB.fromByteString $ statusMessage s
       , BB.fromByteString "</h2>"
-      , BB.fromLazyByteString (reason' s reason)
+      , BB.fromLazyByteString reason
       , BB.fromByteString "<p><hr><address>webcrank web server</address></body></html>"
       ]
 

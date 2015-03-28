@@ -12,6 +12,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.Reader
 import Control.Monad.RWS
+import Control.Monad.Trans.Either
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B hiding (drop, take)
@@ -28,7 +29,6 @@ import Network.HTTP.Media
 import Network.HTTP.Types
 
 import Webcrank.Internal.ETag
-import Webcrank.Internal.Halt
 import Webcrank.Internal.Headers
 import Webcrank.Internal.Types
 import Webcrank.Internal.ReqData
@@ -67,11 +67,14 @@ runFlowChart = \case
 respond :: Monad m => Status -> FlowChart (HaltT m) Status
 respond s =
   if statusCode s >= 400 && statusCode s < 600
-    then done $ werror' s
+    then done $ errorResponse' s
     else done' s
 
-errorResponse :: Monad m => Status -> LB.ByteString -> FlowChart (HaltT m) a
-errorResponse s = Done . werror s
+errorResponse :: Monad m => Status -> LB.ByteString -> HaltT m a
+errorResponse s = HaltT . left . Error s
+
+errorResponse' :: Monad m => Status -> HaltT m a
+errorResponse' s = errorResponse s (LB.fromStrict $ statusMessage s)
 
 -- Service Available
 b13
@@ -174,7 +177,7 @@ c4
 c4 acc = decision "c4" $ maybe (return noAcc) d4' =<< match where
   d4' = (d4 <$) . assign reqDataRespMediaType
   match = flip matchAccept acc . fmap fst <$> callr' contentTypesProvided
-  noAcc = errorResponse notAcceptable406 "No acceptable media type available"
+  noAcc = done $ errorResponse notAcceptable406 "No acceptable media type available"
 
 -- Accept-Language exists?
 d4
@@ -214,7 +217,7 @@ setCharsetFrom acc = callr' charsetsProvided >>= match where
     CharsetsProvided cs -> match' (fst <$> NE.toList cs)
   match' = maybe noAcc matched . flip matchAccept acc
   matched = assign reqDataRespCharset . Just
-  noAcc = werror notAcceptable406 "No acceptable charset available"
+  noAcc = errorResponse notAcceptable406 "No acceptable charset available"
 
 -- Accept-Encoding exists?
 -- also set Content-Type header now that charset is chosen
@@ -587,7 +590,7 @@ accept = getRequestContentType >>= accept' >> encodeBodyIfSet where
   getRequestContentType =
     fromMaybe "application/octet-stream" <$> getRequestHeader hContentType
   accept' ct = callr' contentTypesAccepted >>= \fs ->
-    fromMaybe (werror' unsupportedMediaType415) (mapContentMedia fs ct)
+    fromMaybe (errorResponse' unsupportedMediaType415) (mapContentMedia fs ct)
 
 bool :: a -> a -> Bool -> a
 bool x y p = if p then y else x

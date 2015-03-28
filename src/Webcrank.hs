@@ -110,10 +110,12 @@ resource = Resource
 -- | Creates a resource that provides a single content type.
 resourceWithBody :: Monad m => MediaType -> m Body -> Resource m
 resourceWithBody t b = resource { contentTypesProvided = return [(t, lift b)] }
+{-# INLINE resourceWithBody #-}
 
 -- | Creates a resource that provides a @text/html@ content type.
 resourceWithHtml :: Monad m => m Body -> Resource m
 resourceWithHtml b = resourceWithBody "text/html" b
+{-# INLINE resourceWithHtml #-}
 
 -- | Shortcut for @return . CharsetsProvided@
 provideCharsets
@@ -121,6 +123,7 @@ provideCharsets
   => NonEmpty (Charset, Body -> Body)
   -> m CharsetsProvided
 provideCharsets = return . CharsetsProvided
+{-# INLINE provideCharsets #-}
 
 -- | Add a header to the response.
 addResponseHeader
@@ -129,6 +132,7 @@ addResponseHeader
   -> ByteString
   -> m ()
 addResponseHeader h v = reqDataRespHeaders %= HashMap.insertWith (<>) h [v]
+{-# INLINE addResponseHeader #-}
 
 -- | Create a @PostAction@ which performs resource creation without redirecting.
 postCreate :: Monad m => [Text] -> m (PostAction m)

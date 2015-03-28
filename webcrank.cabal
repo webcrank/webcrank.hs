@@ -1,9 +1,9 @@
 name:               webcrank
 version:            0.1
 license:            BSD3
-license-file:       LICENCE
+license-file:       LICENSE
 author:             Mark Hibberd <mark@hibberd.id.au>
-maintainer:         Mark Hibberd <mark@hibberd.id.au>
+maintainer:         Richard Wallace <rwallace@thewallacepack.net>
 copyright:          (c) 2012 Mark Hibberd
 synopsis:           Webmachine inspired toolkit for building http applications and services.
 category:           Web
@@ -22,31 +22,28 @@ flag                small_base
   description:      Choose the new, split-up base package.
 
 library
-  build-depends:
-                    attoparsec                      >= 0.10
+  build-depends:    attoparsec                      >=0.10 && <0.13
                   , base                            >= 4.6 && < 5
-                  , blaze-builder
-                  , bytestring                      >= 0.10.0
-                  , case-insensitive                >= 1.0
-                  , either
-                  , exceptions
-                  , http-date                       >= 0.0.1
-                  , http-media                      >= 0.4.0
-                  , http-types                      >= 0.8.0
-                  , network-uri                     >= 2.5.0
-                  , lens                            >= 4.5
-                  , mtl                             >= 2.0
-                  , semigroups                      >= 0.8.3.1
-                  , text                            >= 0.11
-                  , transformers                    >= 0.2
-                  , unordered-containers
-                  , utf8-string                     >= 0.3.7
+                  , blaze-builder                   >=0.2.1.4 && <0.4
+                  , bytestring                      >=0.9.1.10 && <0.11
+                  , case-insensitive                >=0.3 && <1.3
+                  , either                          >=3.1 && <5
+                  , exceptions                      >=0.1.1 && <1
+                  , http-date                       >=0.0.1 && <0.1
+                  , http-media                      >=0.4.0 && <0.7
+                  , http-types                      >=0.8.0 && <0.9
+                  , network-uri                     >=2.5.0 && <2.7
+                  , lens                            >=4.5 && <4.9
+                  , mtl                             >=2.0.1 && <2.3
+                  , semigroups                      >=0.8.4 && <1
+                  , text                            >=0.11 && <1.3
+                  , transformers                    >=0.2 && <0.5
+                  , unordered-containers            ==0.2.*
+                  , utf8-string                     >=0.3.1 && <1.1
 
-  ghc-options:
-                    -Wall
+  ghc-options:      -Wall
 
-  hs-source-dirs:
-                    src
+  hs-source-dirs:   src
 
   exposed-modules:  Webcrank
                     Webcrank.ServerAPI
@@ -65,24 +62,26 @@ library
 
 test-suite tests
   type:             exitcode-stdio-1.0
+
   main-is:          tests.hs
+
   hs-source-dirs:   test
-  build-depends:
-                    QuickCheck
+
+  build-depends:    QuickCheck       >= 2.4
                   , tasty            >= 0.3
                   , tasty-hunit      >= 0.2
                   , tasty-quickcheck >= 0.3
 
-                  , attoparsec                      >= 0.10
-                  , base                            >= 4.6 && < 5
-                  , bytestring                      >= 0.10.0
-                  , case-insensitive                >= 1.0
-                  , either
-                  , exceptions
-                  , http-date                       >= 0.0.1
-                  , http-media                      >= 0.4.0
-                  , http-types                      >= 0.8.0
-                  , lens
-                  , mtl                             >= 2.0
-                  , unordered-containers
+                  , attoparsec                      >=0.10 && <0.13
+                  , base                            >=4.6 && < 5
+                  , bytestring                      >=0.9.1.10 && <0.11
+                  , case-insensitive                >=0.3 && <1.3
+                  , either                          >=3.1 && <5
+                  , exceptions                      >=0.1.1 && <1
+                  , http-date                       >=0.0.1 && <0.1
+                  , http-media                      >=0.4.0 && <0.7
+                  , http-types                      >=0.8.0 && <0.9
+                  , lens                            >=4.5 && <4.9
+                  , mtl                             >=2.0.1 && <2.3
+                  , unordered-containers            ==0.2.*
                   , webcrank
