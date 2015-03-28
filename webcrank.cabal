@@ -7,8 +7,8 @@ maintainer:         Richard Wallace <rwallace@thewallacepack.net>
 copyright:          (c) 2012 Mark Hibberd
 synopsis:           Webmachine inspired toolkit for building http applications and services.
 category:           Web
-homepage:           https://github.com/webcrank/webcrank
-bug-reports:        https://github.com/webcrank/webcrank/issues
+homepage:           https://github.com/webcrank/webcrank.hs
+bug-reports:        https://github.com/webcrank/webcrank.hs/issues
 cabal-version:      >= 1.8
 build-type:         Simple
 description:
