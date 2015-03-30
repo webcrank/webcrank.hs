@@ -18,6 +18,7 @@ module Webcrank
   , HaltT
   , halt
   , werror
+  , werrorWith
     -- * Charsets
   , Charset
   , CharsetsProvided(..)

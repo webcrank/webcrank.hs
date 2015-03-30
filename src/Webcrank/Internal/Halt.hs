@@ -24,6 +24,11 @@ halt = HaltT . left . Halt
 -- @500 Internal Server Error@ response. The response body will contain the
 -- reason.
 werror :: Monad m => LB.ByteString -> HaltT m a
-werror = HaltT . left . Error internalServerError500
+werror = werrorWith internalServerError500
 {-# INLINE werror #-}
 
+-- | Immediately end processing of this request, returning a response
+-- with the given @Status@. The response body will contain the reason.
+werrorWith :: Monad m => Status -> LB.ByteString -> HaltT m a
+werrorWith s = HaltT . left . Error s
+{-# INLINE werrorWith #-}
