@@ -8,7 +8,7 @@ env:
 
 matrix:
   allow_failures:
-    # 7.10.1 fails due to an error compiling http-media
+    # this should be fixed now, let's find out!
     - env: GHCVER=7.10.1 
     - env: GHCVER=head
 
