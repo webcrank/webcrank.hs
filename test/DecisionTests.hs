@@ -533,7 +533,7 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
   [ testCase "True + created + content type accepted ==> 303 See Other" $
       let
         r = resource
-          { postAction = return $ PostCreateRedir ["webcrank"]
+          { postAction = return . PostCreateRedir $ ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
         rq = req { reqHeaders = HashMap.singleton hContentType ["text/html"] }
@@ -543,7 +543,7 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
    , testCase "True + created + no content type accepted ==> 415 Unsupported Media Type" $
       let
         r = resource
-          { postAction = return $ PostCreateRedir ["webcrank"]
+          { postAction = return . PostCreateRedir $ ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
         rq = req { reqHeaders = HashMap.singleton hContentType ["text/plain"] }
@@ -555,7 +555,7 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
   , testCase "False + created + content type accepted ==> p11" $
       let
         r = resource
-          { postAction = return $ PostCreate ["webcrank"]
+          { postAction = return . PostCreate $ ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
         rq = req { reqHeaders = HashMap.singleton hContentType ["text/html"] }
@@ -564,7 +564,7 @@ n11Tests = decisionTestGroup "n11" "Redirect?"
   , testCase "False + created + no content type accepted ==> p11" $
       let
         r = resource
-          { postAction = return $ PostCreate ["webcrank"]
+          { postAction = return . PostCreate $ ["webcrank"]
           , contentTypesAccepted = return [("text" // "html", return ())]
           }
         rq = req { reqHeaders = HashMap.singleton hContentType ["text/plain"] }

@@ -19,6 +19,7 @@ module Webcrank
   , halt
   , werror
   , werrorWith
+  , getDispatchPath
     -- * Charsets
   , Charset
   , CharsetsProvided(..)
@@ -178,3 +179,10 @@ writeStr
 writeStr = assign reqDataRespBody . Just . strBody
 {-# INLINE writeStr #-}
 
+-- | The “local” path of the resource URI; the part
+-- after any prefix used in dispatch configuration.
+-- Of the three path accessors, this is the one you usually want.
+-- This is also the one that will change after postAction is called
+-- in your resource.
+getDispatchPath :: (MonadState s m, HasReqData s) => m [Text]
+getDispatchPath = use reqDataDispPath

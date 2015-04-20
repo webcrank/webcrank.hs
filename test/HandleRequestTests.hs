@@ -7,7 +7,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Webcrank
-import Webcrank.Internal
 import TestServerAPI
 
 handleRequestTests :: TestTree
@@ -34,7 +33,7 @@ postTest = testCase "POST" $
     r = resource
       { contentTypesAccepted =
           return [("plain" // "text", putResponseHeader hContentType "plain/text" >> writeLBS "webcrank")]
-      , postAction = return $ PostCreate ["new"]
+      , postAction = return . PostCreate $ ["new"]
       , allowedMethods = return [methodGet, methodHead, methodPost]
       }
     rq = req
