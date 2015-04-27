@@ -14,6 +14,14 @@ build-type:         Simple
 description:
   Webmachine inspired toolkit for building http applications and services.
 
+extra-source-files:
+  .ghci
+  .gitignore
+  .travis.yml
+  HLint.hs
+  LICENSE
+  README.md
+
 source-repository   head
   type:             git
   location:         https://github.com/webcrank/webcrank.git
@@ -63,6 +71,12 @@ test-suite tests
   type:             exitcode-stdio-1.0
 
   main-is:          tests.hs
+
+  other-modules:    DecisionTests
+                  , HandleRequestTests
+                  , ParserTests
+                  , ResourceTests
+                  , TestServerAPI
 
   hs-source-dirs:   test
 
