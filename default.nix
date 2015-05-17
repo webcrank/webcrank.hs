@@ -6,8 +6,8 @@
 }:
 mkDerivation {
   pname = "webcrank";
-  version = "0.3";
-  src = ./.;
+  version = "0.2.12.1";
+  src = builtins.filterSource (path: type: baseNameOf path != ".git" && baseNameOf path != "dist") ./.;
   buildDepends = [
     attoparsec base blaze-builder bytestring case-insensitive
     containers either exceptions http-date http-media http-types lens

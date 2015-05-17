@@ -1,5 +1,5 @@
 name:               webcrank
-version:            0.2.0.1
+version:            0.2.1
 license:            BSD3
 license-file:       LICENSE
 author:             Mark Hibberd <mark@hibberd.id.au>
@@ -30,7 +30,7 @@ flag                small_base
   description:      Choose the new, split-up base package.
 
 library
-  build-depends:    attoparsec                      >=0.10 && <0.13
+  build-depends:    attoparsec                      >=0.10 && <1
                   , base                            >=4.6 && < 5
                   , blaze-builder                   >=0.2.1.4 && <0.4
                   , bytestring                      >=0.9.1.10 && <0.11
@@ -84,7 +84,7 @@ test-suite tests
                   , tasty-hunit      >= 0.2
                   , tasty-quickcheck >= 0.3
 
-                  , attoparsec                      >=0.10 && <0.13
+                  , attoparsec                      >=0.10 && <1
                   , base                            >=4.6 && < 5
                   , bytestring                      >=0.9.1.10 && <0.11
                   , case-insensitive                >=0.3 && <1.3
