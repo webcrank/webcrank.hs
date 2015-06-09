@@ -71,10 +71,11 @@ putResponseLocation
   -> m ()
 putResponseLocation = putResponseHeader hLocation
 
--- | Use the lazy @ByteString@ as the response body.
-writeLBS
+-- | Use the @Body@ as the response body.
+writeBody
   :: (MonadState s m, HasReqData s)
   => LB.ByteString
   -> m ()
-writeLBS = (reqDataRespBody ?=)
+writeBody = (reqDataRespBody ?=)
+{-# INLINE writeBody #-}
 

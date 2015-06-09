@@ -20,6 +20,8 @@ module Webcrank
   , werror
   , werrorWith
   , getDispatchPath
+  , ReqData
+  , HasReqData
     -- * Charsets
   , Charset
   , CharsetsProvided(..)
@@ -30,10 +32,16 @@ module Webcrank
   , putResponseHeader
     -- * Body
   , Body
-  , textBody
+  , lazyByteStringBody
+  , byteStringBody
   , lazyTextBody
+  , textBody
   , strBody
+  , writeBody
   , writeLBS
+  , writeBS
+  , writeLT
+  , writeText
   , writeStr
     -- * Extra convience (re)exports
   , module Network.HTTP.Date
@@ -171,12 +179,54 @@ strBody :: String -> Body
 strBody = lazyTextBody . LT.pack
 {-# INLINE strBody #-}
 
--- | Set the response body from a @String@
+-- | Create a response @Body@ from a lazy @ByteString@.
+lazyByteStringBody :: LB.ByteString -> Body
+lazyByteStringBody = id
+{-# INLINE lazyByteStringBody #-}
+
+-- | Create a response @Body@ from a @ByteString@.
+byteStringBody :: ByteString -> Body
+byteStringBody = lazyByteStringBody . LB.fromStrict
+{-# INLINE byteStringBody #-}
+
+-- | Use the @Text@ as the response body.
+writeText
+  :: (MonadState s m, HasReqData s)
+  => Text
+  -> m ()
+writeText = writeBody . textBody
+{-# INLINE writeText #-}
+
+-- | Use the lazy @Text@ as the response body.
+writeLT
+  :: (MonadState s m, HasReqData s)
+  => LT.Text
+  -> m ()
+writeLT = writeBody . lazyTextBody
+{-# INLINE writeLT #-}
+
+-- | Use the @ByteString@ as the response body.
+writeBS
+  :: (MonadState s m, HasReqData s)
+  => ByteString
+  -> m ()
+writeBS = writeBody . byteStringBody
+{-# INLINE writeBS #-}
+
+-- | Use the lazy @ByteString@ as the response body.
+writeLBS
+  :: (MonadState s m, HasReqData s)
+  => LB.ByteString
+  -> m ()
+writeLBS = writeBody
+{-# INLINE writeLBS #-}
+
+-- | Use the @String@ as the response body.
 writeStr
   :: (MonadState s m, HasReqData s)
   => String
   -> m ()
-writeStr = assign reqDataRespBody . Just . strBody
+writeStr = writeBody . strBody
 {-# INLINE writeStr #-}
 
 -- | The “local” path of the resource URI; the part
