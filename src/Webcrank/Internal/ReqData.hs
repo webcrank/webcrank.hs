@@ -12,6 +12,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.Maybe
 import Network.HTTP.Media
 import Network.HTTP.Types
+import Prelude
 
 import Webcrank.Internal.Types
 

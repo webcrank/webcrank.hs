@@ -17,6 +17,7 @@ import qualified Data.ByteString.Lazy.UTF8 as LB
 import Data.Foldable (traverse_)
 import Network.HTTP.Media
 import Network.HTTP.Types
+import Prelude
 
 import Webcrank.Internal.DecisionCore
 import Webcrank.Internal.Halt

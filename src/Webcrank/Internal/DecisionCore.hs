@@ -15,7 +15,7 @@ import Control.Monad.RWS
 import Control.Monad.Trans.Either
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B hiding (drop, take)
+import qualified Data.ByteString as B hiding (drop, take, break)
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.ByteString.UTF8 as B
 import qualified Data.CaseInsensitive as CI
@@ -27,6 +27,7 @@ import Data.Text (Text)
 import Network.HTTP.Date
 import Network.HTTP.Media
 import Network.HTTP.Types
+import Prelude
 
 import Webcrank.Internal.ETag
 import Webcrank.Internal.Headers
@@ -510,7 +511,7 @@ splitURI = ensureNonEmpty . extract where
   ensureNonEmpty p  = p
   split i path = case breakOnSlash $ B.drop i path of
     (a, p) -> (B.take i path <> a, p)
-  breakOnSlash = B.breakByte 47
+  breakOnSlash = B.break (== '/')
 
 -- POST? (resource exists)
 n16

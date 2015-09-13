@@ -24,6 +24,7 @@ import Data.Text (Text)
 import Network.HTTP.Date
 import Network.HTTP.Media
 import Network.HTTP.Types
+import Prelude
 
 import Webcrank.Internal.Headers
 

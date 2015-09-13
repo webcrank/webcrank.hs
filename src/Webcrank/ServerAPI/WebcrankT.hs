@@ -4,8 +4,8 @@ module Webcrank.ServerAPI.WebcrankT where
 
 import Control.Applicative
 import Control.Monad.Catch
-import Control.Monad.Error
 import Control.Monad.RWS
+import Prelude
 
 import Webcrank.Internal.Types
 
